@@ -1651,6 +1651,16 @@ function onDoubleClick(e) {
   if (b) { startEdit(b); return; }
   const lEl = e.target.closest('[data-link]');
   if (lEl) {
+    const l = linkById(lEl.dataset.link);
+    // double-click on a segment of a manually routed polyline: back to automatic routing
+    if (l && e.target.closest('[data-seg]') && l.waypoints) {
+      const snap = snapshot();
+      delete l.waypoints;
+      pushUndo(snap);
+      sel = new Set([l.id]); refreshInspector(); render();
+      toast('Route reset to automatic');
+      return;
+    }
     sel = new Set([lEl.dataset.link]); refreshInspector(); render();
     const inp = inspector.querySelector('[data-k=label]');
     if (inp) { inp.focus(); inp.select(); }
@@ -1945,7 +1955,7 @@ function refreshProps() {
       <ul class="tips">
         <li><b>Double-click</b> empty canvas to add a block.</li>
         <li><b>Shift + drag</b> from a block to draw a link. Drop on another block or on empty canvas (free end).</li>
-        <li><b>Drag a polyline segment</b> to move it. "Reset route" in the sidebar brings back automatic routing.</li>
+        <li><b>Drag a polyline segment</b> to move it. <b>Double-click</b> it, or use "Reset route" in the sidebar, to go back to automatic routing.</li>
         <li>Select a link and <b>drag its end handles</b> (or connectors) to another side or block. Drop near the center of a block for an automatic side.</li>
         <li><b>Double-click</b> a block to edit the rich-text title (Enter = new line).</li>
         <li>Open the <b>Flows</b> tab to describe a request path or scenario as numbered steps.</li>
@@ -2416,6 +2426,8 @@ function openHelp() {
     <h4>Links</h4><table class="keys">
       <tr><td>${k('Shift')} + drag from block</td><td>Create a link; drop on a block or on empty canvas for a free end</td></tr>
       <tr><td>Drag link end / connector</td><td>Move it to another side, another block, or free space. Dropping near a block's center makes the side automatic.</td></tr>
+      <tr><td>Drag polyline segment</td><td>Move it; it snaps into line with its neighbours</td></tr>
+      <tr><td>Double-click segment of an adjusted polyline</td><td>Reset to automatic routing</td></tr>
       <tr><td>Double-click link</td><td>Edit its label</td></tr></table>
     <h4>Keyboard</h4><table class="keys">
       <tr><td>${k('Ctrl/⌘+Z')} / ${k('Ctrl/⌘+Shift+Z')}</td><td>Undo / redo</td></tr>
