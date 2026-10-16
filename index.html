@@ -1218,8 +1218,9 @@ function findStraight(ends, geo) {
 
   // A polyline that already runs towards a block side but ends with a small
   // jog onto its spread slot: move the connector onto the line instead.
+  // Manually shaped routes qualify too: their bends stay, only the connector moves.
   for (const l of doc.links) {
-    if (l.route !== 'poly' || hasWaypoints(l) || l.straight === false || out.has(l.id)) continue;
+    if (l.route !== 'poly' || l.straight === false || out.has(l.id)) continue;
     const r = ends.get(l.id), entry = {};
     let pts = (lines.get(l.id) || []).map(q => ({ x: q.x, y: q.y }));
     for (const which of ['from', 'to']) {
