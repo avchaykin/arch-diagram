@@ -52,7 +52,9 @@
   #svg .link .hit { cursor: pointer; }
   #svg .seg-h { cursor: ns-resize !important; } #svg .seg-v { cursor: ew-resize !important; }
   #svg .conn, #svg .end-handle { cursor: grab; }
+  #svg { cursor: grab; }
   #stage.panning #svg, #stage.panning #svg * { cursor: grab !important; }
+  #stage.dragpan #svg, #stage.dragpan #svg * { cursor: grabbing !important; }
   .h-nw, .h-se { cursor: nwse-resize; } .h-ne, .h-sw { cursor: nesw-resize; }
   .h-n, .h-s { cursor: ns-resize; } .h-e, .h-w { cursor: ew-resize; }
 
@@ -1493,7 +1495,11 @@ svg.addEventListener('pointerdown', e => {
     refreshInspector(); render();
     return;
   }
-  if (!(mod || e.shiftKey)) { sel.clear(); refreshInspector(); }
+  // empty canvas: plain drag pans (a click clears the selection), Shift/Ctrl/⌘ + drag selects a box
+  if (!(mod || e.shiftKey)) {
+    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y, empty: true, moved: false };
+    return;
+  }
   drag = { type: 'marquee', p0: p, p, base: new Set(sel) };
   render();
 });
@@ -1503,6 +1509,8 @@ window.addEventListener('pointermove', e => {
   const p = toWorld(e);
   switch (drag.type) {
     case 'pan':
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      if (!drag.moved) { drag.moved = true; stage.classList.add('dragpan'); }
       view.x = drag.vx + e.clientX - drag.sx; view.y = drag.vy + e.clientY - drag.sy;
       render(); break;
     case 'move': {
@@ -1600,6 +1608,10 @@ window.addEventListener('pointerup', e => {
     case 'marquee':
       refreshInspector();
       break;
+    case 'pan':
+      stage.classList.remove('dragpan');
+      if (d.empty && !d.moved && sel.size) { sel.clear(); refreshInspector(); }
+      break;
   }
   render();
 });
@@ -1642,14 +1654,10 @@ function onDoubleClick(e) {
 svg.addEventListener('wheel', e => {
   e.preventDefault();
   const r = svg.getBoundingClientRect();
-  if (e.ctrlKey || e.metaKey) {
-    zoomAt(Math.exp(-clamp(e.deltaY * (e.deltaMode ? 20 : 1), -60, 60) * 0.01), e.clientX - r.left, e.clientY - r.top);
-  } else {
-    const m = e.deltaMode ? 20 : 1;
-    view.x -= (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * m;
-    view.y -= (e.shiftKey && !e.deltaX ? 0 : e.deltaY) * m;
-    render();
-  }
+  // the wheel zooms around the pointer; pinch gestures arrive as Ctrl + wheel with small deltas
+  const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 300 : 1);
+  const factor = e.ctrlKey ? Math.exp(-clamp(dy, -60, 60) * 0.01) : Math.exp(-clamp(dy, -150, 150) * 0.0015);
+  zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
 }, { passive: false });
 
 function zoomAt(factor, sx, sy) {
@@ -1933,7 +1941,7 @@ function refreshProps() {
         <li>Select a link and <b>drag its end handles</b> (or connectors) to another side or block. Drop near the center of a block for an automatic side.</li>
         <li><b>Double-click</b> a block to edit the rich-text title (Enter = new line).</li>
         <li>Open the <b>Flows</b> tab to describe a request path or scenario as numbered steps.</li>
-        <li><b>Wheel</b> pans, <b>Ctrl/⌘ + wheel</b> zooms, <b>Space + drag</b> pans.</li>
+        <li><b>Wheel</b> zooms. <b>Drag empty canvas</b> to pan. <b>Shift + drag</b> on empty canvas selects a box.</li>
       </ul>
       <h3>About</h3>
       <div class="muted">${esc(APP_INFO.name)} v${esc(APP_INFO.version)}<br><a href="${esc(APP_INFO.github)}" target="_blank" rel="noopener">${esc(APP_INFO.github)}</a></div>`;
@@ -2393,7 +2401,8 @@ function openHelp() {
       <tr><td>Double-click canvas</td><td>Add a block</td></tr>
       <tr><td>Double-click block</td><td>Edit the rich-text title (Enter = new line, ${k('Esc')} or ${k('Ctrl/⌘+Enter')} to finish)</td></tr>
       <tr><td>Drag / handles</td><td>Move / resize (hold ${k('Alt')} to ignore the grid)</td></tr>
-      <tr><td>${k('Ctrl/⌘')} + click, drag on canvas</td><td>Multi-select / box select</td></tr></table>
+      <tr><td>${k('Ctrl/⌘')} + click</td><td>Add to / remove from the selection</td></tr>
+      <tr><td>${k('Shift')} or ${k('Ctrl/⌘')} + drag on empty canvas</td><td>Box select</td></tr></table>
     <h4>Links</h4><table class="keys">
       <tr><td>${k('Shift')} + drag from block</td><td>Create a link; drop on a block or on empty canvas for a free end</td></tr>
       <tr><td>Drag link end / connector</td><td>Move it to another side, another block, or free space. Dropping near a block's center makes the side automatic.</td></tr>
@@ -2406,7 +2415,8 @@ function openHelp() {
       <tr><td>Arrows (${k('Shift')} = grid step)</td><td>Nudge selected blocks</td></tr>
       <tr><td>${k('Ctrl/⌘+S')} / ${k('Ctrl/⌘+Shift+S')} / ${k('Ctrl/⌘+O')}</td><td>Save / save as / open</td></tr>
       <tr><td>${k('+')} ${k('-')} ${k('F')} ${k('Ctrl/⌘+0')}</td><td>Zoom in, out, fit, 100%</td></tr>
-      <tr><td>${k('Space')} + drag, wheel</td><td>Pan (${k('Ctrl/⌘')} + wheel zooms)</td></tr></table>
+      <tr><td>Wheel</td><td>Zoom around the pointer</td></tr>
+      <tr><td>Drag empty canvas (or ${k('Space')} + drag)</td><td>Pan</td></tr></table>
     <h4>Files</h4>
     <p class="muted">Diagrams are stored as JSON. In Google Chrome / Edge the file is read and written in place (File System Access API);
     other browsers fall back to upload/download. Work is also auto-saved in this browser. You can drop a .json file onto the window to open it.</p>

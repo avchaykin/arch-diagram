@@ -56,5 +56,7 @@ A manually shaped polyline stores its bend points as `"waypoints": [ { "x", "y" 
 | Undo / redo | Ctrl/⌘+Z, Ctrl/⌘+Shift+Z |
 | Copy / paste / duplicate | Ctrl/⌘+C / V / D |
 | Save / save as / open | Ctrl/⌘+S, Ctrl/⌘+Shift+S, Ctrl/⌘+O |
-| Pan / zoom | wheel or Space + drag / Ctrl/⌘ + wheel |
+| Zoom | mouse wheel |
+| Pan | drag empty canvas (or Space + drag) |
+| Box select | Shift or Ctrl/⌘ + drag on empty canvas |
 | Fit | F |
