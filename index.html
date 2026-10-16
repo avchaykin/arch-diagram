@@ -1529,9 +1529,15 @@ window.addEventListener('pointermove', e => {
     case 'seg': {
       if (!drag.moved && Math.hypot(p.x - drag.p0.x, p.y - drag.p0.y) * view.k < 3) return;
       if (!drag.moved) { Object.assign(drag, segDragBase(drag.pts, drag.k)); drag.moved = true; }
-      const pts = drag.pts.map(q => ({ x: q.x, y: q.y })), A = pts[drag.k], B = pts[drag.k + 1];
-      if (Math.abs(A.y - B.y) < EPS) { const c = snapV(A.y + p.y - drag.p0.y, e); A.y = B.y = c; }
-      else { const c = snapV(A.x + p.x - drag.p0.x, e); A.x = B.x = c; }
+      const pts = drag.pts.map(q => ({ x: q.x, y: q.y })), k = drag.k, A = pts[k], B = pts[k + 1];
+      const horiz = Math.abs(A.y - B.y) < EPS, axis = horiz ? 'y' : 'x';
+      const raw = A[axis] + (horiz ? p.y - drag.p0.y : p.x - drag.p0.x);
+      // snap to the line of the neighbouring parallel segments, so the step disappears
+      let c = snapV(raw, e), best = 8 / view.k;
+      for (const q of [pts[k - 1], pts[k + 2]]) {
+        if (q && Math.abs(q[axis] - raw) < best) { best = Math.abs(q[axis] - raw); c = q[axis]; }
+      }
+      A[axis] = B[axis] = c;
       const inner = simplify(pts).slice(1, -1);
       if (inner.length) drag.l.waypoints = inner; else delete drag.l.waypoints;
       render(); break;
