@@ -516,6 +516,7 @@ let lastGeo = new Map();
 let clipboard = null;
 let inspSnap = null;
 let hoverConn = null;
+let hoverFlow = null;
 let sideTab = 'props', activeFlow = null, recording = false, hoverStep = -1, flowSnap = null;
 
 const svg = $('#svg'), stage = $('#stage'), viewport = $('#viewport');
@@ -1271,7 +1272,8 @@ function connectorsSvg(l, ends) {
 /* Step numbers of the active flow: a row of pills at a block's top-left
    corner, or above the middle of a link */
 function flowSvg() {
-  const f = flowById(activeFlow);
+  // the open flow, or a preview of the flow hovered in the list
+  const f = flowById(activeFlow) || flowById(hoverFlow);
   if (!f) return '';
   const byRef = new Map();
   f.steps.forEach((st, i) => { if (!byRef.has(st.ref)) byRef.set(st.ref, []); byRef.get(st.ref).push(i); });
@@ -2168,6 +2170,7 @@ function setRecording(on) {
 }
 function refreshFlows() {
   const f = flowById(activeFlow);
+  hoverFlow = null; // the list is rebuilt; a new mouseover sets it again
   if (!f) { activeFlow = null; recording = false; }
   $('#flowCnt').textContent = doc.flows.length ? ` ${doc.flows.length}` : '';
   $('#recBar').hidden = !recording;
@@ -2266,9 +2269,10 @@ flowsPanel.addEventListener('change', e => {
 });
 flowsPanel.addEventListener('mouseover', e => {
   const st = e.target.closest('.step'), i = st ? +st.dataset.i : -1;
-  if (i !== hoverStep) { hoverStep = i; render(); }
+  const fi = e.target.closest('.flow-item'), hf = fi ? fi.dataset.f : null;
+  if (i !== hoverStep || hf !== hoverFlow) { hoverStep = i; hoverFlow = hf; render(); }
 });
-flowsPanel.addEventListener('mouseleave', () => { if (hoverStep >= 0) { hoverStep = -1; render(); } });
+flowsPanel.addEventListener('mouseleave', () => { if (hoverStep >= 0 || hoverFlow) { hoverStep = -1; hoverFlow = null; render(); } });
 /* reorder steps by dragging their grip */
 let stepDrag = -1;
 flowsPanel.addEventListener('pointerdown', e => {

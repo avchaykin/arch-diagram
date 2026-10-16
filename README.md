@@ -19,7 +19,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
   - You can start with an empty flow, record one by clicking elements on the canvas in order, or build one from the current selection.
   - Steps can be added, deleted and dragged to a new order. The same element can appear in a flow several times.
   - A flow has a name, a description and a color, and each step has its own description.
-  - When a flow is open, its step numbers are shown on the elements. Click a number to jump to that step.
+  - Hovering a flow in the list previews its step numbers on the canvas. When a flow is open, its numbers stay visible. Click a number to jump to that step.
 - **Settings**: canvas, grid and snap, routing parameters, and default styles for new blocks and links. You can save them as your personal defaults.
 - **Files**: the diagram is stored as JSON. In Chrome the File System Access API reads and writes the local file in place; other browsers fall back to upload/download. Work is also auto-saved in browser storage, and you can drop a `.json` file onto the window to open it.
 - **Other**: undo/redo, copy/paste/duplicate, box selection, zoom/pan, export to SVG.
