@@ -16,6 +16,10 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
   - Polyline corners are rounded with a set radius.
   - **Minimize bends**: a polyline with two or more bends becomes a single L-shaped bend when other sides or spots for its connectors allow it. As with straight links, this happens only if no block is in the way and no crossings are added. Sides you set by hand and manually shaped routes are kept. You can switch it per link, set the default for new links, or turn it off for all links in Settings.
   - You can drag any polyline segment to move it. Near the line of the neighbouring segments it snaps into line with them, which removes the step. The route then becomes manual: its bends stay where you put them and follow the ports when blocks move. Double-clicking a segment, or "Reset route" in the sidebar, brings back automatic routing.
+- **Frames**: named areas that group blocks. They have a fill color and opacity, a border style, color and width, a name color and a corner radius, and are always drawn below blocks and links.
+  - **Frame** in the toolbar wraps the selected blocks, or adds an empty frame.
+  - Drag a frame by its name or border, and everything inside it moves along: blocks, nested frames and free link ends. The inside of a frame still works like empty canvas.
+  - Frames can be resized, nested, copied (with their content) and deleted (the content stays).
 - **Flows**: named sequences of numbered steps over blocks and links, such as a request path or a user scenario. They are managed in the **Flows** tab of the sidebar.
   - You can start with an empty flow, record one by clicking elements on the canvas in order, or build one from the current selection.
   - Steps can be added, deleted and dragged to a new order. The same element can appear in a flow several times.
@@ -36,6 +40,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
   "view": { "x": 0, "y": 0, "k": 1 },
   "blocks": [ { "id": "b1", "x": 0, "y": 0, "w": 160, "h": 72, "title": "<b>API</b>", "icon": "server", "badge": "NEW" } ],
   "links":  [ { "id": "l1", "from": { "block": "b1", "side": "auto" }, "to": { "x": 300, "y": 40 }, "route": "poly", "endEnd": "arrow" } ],
+  "frames": [ { "id": "fr1", "x": 0, "y": 0, "w": 400, "h": 260, "name": "Backend", "fill": "#eef2ff", "opacity": 40, "stroke": "#94a3b8", "strokeStyle": "dashed", "strokeWidth": 1.5, "textColor": "#475569", "radius": 12 } ],
   "flows":  [ { "id": "f1", "name": "Place an order", "description": "…", "color": "#7c3aed", "steps": [ { "ref": "b1", "description": "…" }, { "ref": "l1", "description": "…" } ] } ]
 }
 ```

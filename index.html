@@ -48,6 +48,7 @@
   #stage { position: relative; flex: 1; overflow: hidden; outline: none; }
   #svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
   #svg .block { cursor: move; }
+  #svg .frame-hit { cursor: move; }
   #svg.shift .block, #svg.shift .conn { cursor: crosshair; }
   #svg .link .hit { cursor: pointer; }
   #svg .seg-h { cursor: ns-resize !important; } #svg .seg-v { cursor: ew-resize !important; }
@@ -231,6 +232,7 @@
   </div>
   <div class="tgroup">
     <button class="tbtn" data-cmd="addBlock" title="Add block (or double-click canvas)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg><span class="lbl">Block</span></button>
+    <button class="tbtn" data-cmd="addFrame" title="Add frame (around the selected blocks, if any)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><path d="M7 7h5"/></svg><span class="lbl">Frame</span></button>
     <button class="tbtn" data-cmd="undo" title="Undo (Ctrl/Cmd+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
     <button class="tbtn" data-cmd="redo" title="Redo (Ctrl/Cmd+Shift+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
     <button class="tbtn" data-cmd="delete" title="Delete selection (Del)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
@@ -255,6 +257,7 @@
       <defs id="defs"></defs>
       <g id="viewport">
         <g id="gridLayer"></g>
+        <g id="frameLayer"></g>
         <g id="linkLayer"></g>
         <g id="blockLayer"></g>
         <g id="connLayer"></g>
@@ -332,6 +335,7 @@ const DEFAULT_SETTINGS = {
     icon: '', iconColor: '#4a5568', iconSize: 24, iconPos: 'left',
     badgeColor: '#e53e3e', badgeTextColor: '#ffffff'
   },
+  frame: { fill: '#eef2ff', opacity: 40, stroke: '#94a3b8', strokeStyle: 'dashed', strokeWidth: 1.5, textColor: '#475569', radius: 12 },
   link: {
     route: 'poly', color: '#4a5568', width: 1.5, style: 'solid', startEnd: 'none', endEnd: 'arrow',
     startConn: 'none', endConn: 'none', connColor: '#4a5568', connSize: 8, labelColor: '#374151', straight: true, minBends: true
@@ -508,7 +512,7 @@ function storageSet(key, val) { try { localStorage.setItem(key, val); } catch (e
    State
    ===================================================================== */
 let settings = loadUserDefaults();
-let doc = { blocks: [], links: [], flows: [] };
+let doc = { blocks: [], links: [], flows: [], frames: [] };
 let view = { x: 0, y: 0, k: 1 };
 let sel = new Set();
 let undoStack = [], redoStack = [];
@@ -523,6 +527,7 @@ let hoverFlow = null;
 let sideTab = 'props', activeFlow = null, recording = false, hoverStep = -1, flowSnap = null;
 
 const svg = $('#svg'), stage = $('#stage'), viewport = $('#viewport');
+const frameLayer = $('#frameLayer');
 const gridLayer = $('#gridLayer'), linkLayer = $('#linkLayer'), blockLayer = $('#blockLayer');
 const flowLayer = $('#flowLayer'), flowsPanel = $('#flowsPanel');
 const connLayer = $('#connLayer'), overlayLayer = $('#overlayLayer'), defs = $('#defs');
@@ -558,6 +563,26 @@ function newLink(from, to, props = {}) {
     startConn: d.startConn, endConn: d.endConn, connColor: d.connColor, connSize: d.connSize,
     label: '', labelColor: d.labelColor, straight: d.straight !== false, minBends: d.minBends !== false
   }, props);
+}
+
+function newFrame(x, y, w, h, props = {}) {
+  const d = settings.frame;
+  return Object.assign({
+    id: uid('fr'), x, y, w, h, name: 'Frame',
+    fill: d.fill, opacity: d.opacity, stroke: d.stroke, strokeStyle: d.strokeStyle, strokeWidth: d.strokeWidth, textColor: d.textColor, radius: d.radius
+  }, props);
+}
+function normFrame(o) {
+  const D = settings.frame, f = newFrame(0, 0, 0, 0);
+  f.id = String(o.id || f.id);
+  f.x = num(o.x, 0); f.y = num(o.y, 0);
+  f.w = Math.max(40, num(o.w, 400)); f.h = Math.max(40, num(o.h, 260));
+  f.name = String(o.name ?? '').slice(0, 120);
+  for (const k of ['fill', 'stroke', 'textColor']) f[k] = safeColor(o[k], D[k]);
+  f.opacity = clamp(num(o.opacity, D.opacity), 0, 100);
+  f.strokeStyle = oneOf(o.strokeStyle, optVals(OPTS.strokeStyle), D.strokeStyle);
+  for (const k of ['strokeWidth', 'radius']) f[k] = Math.max(0, num(o[k], D[k]));
+  return f;
 }
 
 function normBlock(o) {
@@ -643,20 +668,24 @@ function normalizeDoc(data) {
     seen.add(l.id);
     for (const w of ['from', 'to']) if (l[w].block && !ids.has(l[w].block)) l[w] = { x: 0, y: 0 };
   }
+  const frames = (Array.isArray(data.frames) ? data.frames : []).filter(o => o && typeof o === 'object').map(normFrame);
+  for (const f of frames) { if (seen.has(f.id)) f.id = uid('fr'); seen.add(f.id); }
   const elems = new Set([...ids, ...links.map(l => l.id)]);
   const flows = (Array.isArray(data.flows) ? data.flows : []).filter(o => o && typeof o === 'object').map(o => normFlow(o, elems));
   for (const f of flows) { if (seen.has(f.id)) f.id = uid('f'); seen.add(f.id); }
-  return { blocks, links, flows };
+  return { blocks, links, flows, frames };
 }
 
 const linkById = id => doc.links.find(l => l.id === id);
 const selBlocks = () => doc.blocks.filter(b => sel.has(b.id));
 const selLinks = () => doc.links.filter(l => sel.has(l.id));
+const selFrames = () => doc.frames.filter(f => sel.has(f.id));
+const frameById = id => doc.frames.find(f => f.id === id);
 
 /* =====================================================================
    Undo / redo / dirty
    ===================================================================== */
-const snapshot = () => JSON.stringify({ blocks: doc.blocks, links: doc.links, flows: doc.flows });
+const snapshot = () => JSON.stringify({ blocks: doc.blocks, links: doc.links, flows: doc.flows, frames: doc.frames });
 function pushUndo(snap) {
   if (snap === snapshot()) return;
   undoStack.push(snap);
@@ -667,8 +696,9 @@ function pushUndo(snap) {
 function restore(snap) {
   doc = JSON.parse(snap);
   doc.flows = doc.flows || [];
+  doc.frames = doc.frames || [];
   bmap = new Map(doc.blocks.map(b => [b.id, b]));
-  for (const id of [...sel]) if (!bmap.has(id) && !linkById(id)) sel.delete(id);
+  for (const id of [...sel]) if (!bmap.has(id) && !linkById(id) && !frameById(id)) sel.delete(id);
   markDirty(); render(); refreshInspector();
 }
 function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
@@ -1627,6 +1657,22 @@ function flowSvg() {
   return s;
 }
 
+/* Frames sit below everything. Only the border and the name tab grab the
+   frame, so the inside still behaves like empty canvas (pan, double-click). */
+function frameSvg(f) {
+  const sw = f.strokeStyle === 'none' ? 0 : +f.strokeWidth;
+  const dash = dashArray(f.strokeStyle, sw);
+  const fs = 13, tab = Math.max(60, (f.name ? textWidth(f.name, fs, 700) : 0) + 24);
+  let s = `<g class="frame" data-frame="${esc(f.id)}">`;
+  s += `<rect x="${f1(f.x)}" y="${f1(f.y)}" width="${f1(f.w)}" height="${f1(f.h)}" rx="${+f.radius}" fill="${esc(f.fill)}" fill-opacity="${f.opacity / 100}" stroke="${sw ? esc(f.stroke) : 'none'}" stroke-width="${sw}"${dash ? ` stroke-dasharray="${dash}"` : ''} pointer-events="none"/>`;
+  s += `<rect class="frame-hit" x="${f1(f.x)}" y="${f1(f.y)}" width="${f1(f.w)}" height="${f1(f.h)}" rx="${+f.radius}" fill="none" stroke="transparent" stroke-width="10" pointer-events="stroke"/>`;
+  s += `<rect class="frame-hit" x="${f1(f.x)}" y="${f1(f.y)}" width="${f1(Math.min(tab, f.w))}" height="28" fill="transparent" pointer-events="all"/>`;
+  if (f.name) s += `<text x="${f1(f.x + 12)}" y="${f1(f.y + 18)}" font-size="${fs}" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" fill="${esc(f.textColor)}" pointer-events="none">${esc(f.name)}</text>`;
+  return s + '</g>';
+}
+// larger frames first, so nested frames are drawn (and picked) on top
+const framesByArea = () => [...doc.frames].sort((a, b) => b.w * b.h - a.w * a.h);
+
 function gridSvg() {
   const C = settings.canvas;
   svg.style.background = C.background;
@@ -1646,6 +1692,16 @@ function overlaySvg(ends) {
   if (hoverConn && ends.has(hoverConn.l)) {
     const p = ends.get(hoverConn.l)[hoverConn.w];
     s += `<circle cx="${f1(p.x)}" cy="${f1(p.y)}" r="${9 / k}" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="${1.5 / k}" pointer-events="none"/>`;
+  }
+  for (const f of selFrames()) {
+    s += `<rect x="${f.x - 3 / k}" y="${f.y - 3 / k}" width="${f.w + 6 / k}" height="${f.h + 6 / k}" rx="${+f.radius + 3 / k}" fill="none" stroke="#2563eb" stroke-width="${1.2 / k}" stroke-dasharray="${4 / k} ${3 / k}" pointer-events="none"/>`;
+    if (sel.size === 1) {
+      const hs = 8 / k;
+      const pts = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
+      for (const [h, [fx, fy]] of Object.entries(pts)) {
+        s += `<rect class="h-${h}" data-handle="${h}" data-frame="${esc(f.id)}" x="${f1(f.x + f.w * fx - hs / 2)}" y="${f1(f.y + f.h * fy - hs / 2)}" width="${hs}" height="${hs}" fill="#fff" stroke="#2563eb" stroke-width="${1.2 / k}"/>`;
+      }
+    }
   }
   for (const b of selBlocks()) {
     s += `<rect x="${b.x - 3 / k}" y="${b.y - 3 / k}" width="${b.w + 6 / k}" height="${b.h + 6 / k}" fill="none" stroke="#2563eb" stroke-width="${1.2 / k}" stroke-dasharray="${4 / k} ${3 / k}" pointer-events="none"/>`;
@@ -1708,6 +1764,7 @@ function doRender() {
     ls += linkSvg(l, g, e);
     cs += connectorsSvg(l, e);
   }
+  frameLayer.innerHTML = framesByArea().map(frameSvg).join('');
   linkLayer.innerHTML = ls;
   blockLayer.innerHTML = doc.blocks.map(blockSvg).join('');
   connLayer.innerHTML = cs;
@@ -1783,7 +1840,7 @@ svg.addEventListener('pointerdown', e => {
   if (stepEl && !e.shiftKey) { focusStep(+stepEl.dataset.step); return; }
   const h = t.closest('[data-handle]');
   if (h) {
-    const b = bmap.get(h.dataset.block);
+    const b = h.dataset.frame ? frameById(h.dataset.frame) : bmap.get(h.dataset.block);
     drag = { type: 'resize', b, handle: h.dataset.handle, orig: { x: b.x, y: b.y, w: b.w, h: b.h }, p0: p, snap: snapshot() };
     return;
   }
@@ -1813,8 +1870,16 @@ svg.addEventListener('pointerdown', e => {
     if (e.shiftKey) { drag = { type: 'newLink', from: b, p0: p, p, moved: false }; return; }
     if (mod) { sel.has(b.id) ? sel.delete(b.id) : sel.add(b.id); refreshInspector(); render(); return; }
     if (!sel.has(b.id)) { sel = new Set([b.id]); refreshInspector(); }
-    const ids = [...sel].filter(id => bmap.has(id));
-    drag = { type: 'move', starts: ids.map(id => ({ b: bmap.get(id), x: bmap.get(id).x, y: bmap.get(id).y })), wps: carriedWaypoints(new Set(ids)), p0: p, snap: snapshot(), moved: false };
+    drag = startMove(p);
+    render();
+    return;
+  }
+  const fEl = t.closest('[data-frame]');
+  if (fEl) {
+    const f = frameById(fEl.dataset.frame);
+    if (mod || e.shiftKey) { sel.has(f.id) ? sel.delete(f.id) : sel.add(f.id); refreshInspector(); render(); return; }
+    if (!sel.has(f.id)) { sel = new Set([f.id]); refreshInspector(); }
+    drag = startMove(p);
     render();
     return;
   }
@@ -1850,8 +1915,7 @@ window.addEventListener('pointermove', e => {
       const s0 = drag.starts[0];
       if (!s0) return;
       const ddx = snapV(s0.x + dx, e) - s0.x, ddy = snapV(s0.y + dy, e) - s0.y;
-      for (const s of drag.starts) { s.b.x = r2(s.x + ddx); s.b.y = r2(s.y + ddy); }
-      for (const c of drag.wps) c.l.waypoints = c.w.map(q => ({ x: r2(q.x + ddx), y: r2(q.y + ddy) }));
+      applyMove(drag, ddx, ddy);
       render(); break;
     }
     case 'seg': {
@@ -1903,6 +1967,7 @@ window.addEventListener('pointermove', e => {
       sel = new Set(drag.base);
       if (r.w * view.k > 3 || r.h * view.k > 3) {
         for (const b of doc.blocks) if (inside(b.x, b.y) && inside(b.x + b.w, b.y + b.h)) sel.add(b.id);
+        for (const f of doc.frames) if (inside(f.x, f.y) && inside(f.x + f.w, f.y + f.h)) sel.add(f.id);
         for (const l of doc.links) {
           const g = lastGeo.get(l.id);
           if (!g) continue;
@@ -1965,6 +2030,31 @@ function segDragBase(src, k) {
   if (k === 0) { const S = stubPt(pts[0], pts[1]); pts.splice(1, 0, { ...S }, { ...S }); k = 2; }
   return { pts, k };
 }
+/* Moving the selection: selected blocks and frames, plus everything that lies
+   inside a moved frame (blocks, nested frames, free link ends). */
+function startMove(p) {
+  const frames = selFrames();
+  const blockIds = new Set(selBlocks().map(b => b.id)), frameIds = new Set(frames.map(f => f.id));
+  const within = (o, f) => o.x >= f.x - EPS && o.y >= f.y - EPS && o.x + o.w <= f.x + f.w + EPS && o.y + o.h <= f.y + f.h + EPS;
+  for (const f of frames) {
+    for (const b of doc.blocks) if (within(b, f)) blockIds.add(b.id);
+    for (const g of doc.frames) if (g !== f && within(g, f)) frameIds.add(g.id);
+  }
+  const moved = doc.frames.filter(f => frameIds.has(f.id));
+  const free = [];
+  for (const l of doc.links) for (const w of ['from', 'to']) {
+    const e = l[w];
+    if (!e.block && moved.some(f => within({ x: e.x, y: e.y, w: 0, h: 0 }, f))) free.push({ e, x: e.x, y: e.y });
+  }
+  const starts = [...doc.blocks.filter(b => blockIds.has(b.id)), ...moved].map(o => ({ b: o, x: o.x, y: o.y }));
+  return { type: 'move', starts, free, wps: carriedWaypoints(blockIds), p0: p, snap: snapshot(), moved: false };
+}
+function applyMove(m, dx, dy) {
+  for (const s of m.starts) { s.b.x = r2(s.x + dx); s.b.y = r2(s.y + dy); }
+  for (const f of m.free) { f.e.x = r2(f.x + dx); f.e.y = r2(f.y + dy); }
+  for (const c of m.wps) c.l.waypoints = c.w.map(q => ({ x: r2(q.x + dx), y: r2(q.y + dy) }));
+}
+
 /* Manual routes of links whose both ends sit on moved blocks travel with them */
 function carriedWaypoints(ids) {
   return doc.links.filter(l => l.waypoints && l.from.block && l.to.block && ids.has(l.from.block) && ids.has(l.to.block))
@@ -1974,6 +2064,13 @@ function carriedWaypoints(ids) {
 function onDoubleClick(e) {
   const p = toWorld(e);
   if (e.target.closest('[data-handle]') || e.target.closest('[data-end]')) return;
+  const fEl = e.target.closest('[data-frame]');
+  if (fEl) {
+    sel = new Set([fEl.dataset.frame]); setSideTab('props'); refreshInspector(); render();
+    const inp = inspector.querySelector('[data-t=frame][data-k=name]');
+    if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
   const bEl = e.target.closest('[data-block]');
   const b = bEl ? bmap.get(bEl.dataset.block) : blockAt(p);
   if (b) { startEdit(b); return; }
@@ -2018,6 +2115,7 @@ function contentBBox() {
   let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
   const add = (x, y) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); };
   for (const b of doc.blocks) { add(b.x - 8, b.y - 12); add(b.x + b.w + 8, b.y + b.h + 8); }
+  for (const f of doc.frames) { add(f.x - 4, f.y - 4); add(f.x + f.w + 4, f.y + f.h + 4); }
   for (const g of lastGeo.values()) {
     const pts = g.type === 'curve' ? [g.p1, g.c1, g.c2, g.p2] : g.pts;
     for (const q of pts) add(q.x, q.y);
@@ -2054,9 +2152,39 @@ function addBlockCenter() {
   while (blockAt(p) && n++ < 20) { p.x += 20; p.y += 20; }
   addBlockAt(p);
 }
+function addFrame() {
+  const snap = snapshot();
+  const blocks = selBlocks();
+  let f;
+  if (blocks.length) {
+    // wrap the selected blocks, leaving room for the name
+    const pad = 30;
+    const bx1 = Math.min(...blocks.map(b => b.x)), by1 = Math.min(...blocks.map(b => b.y));
+    const bx2 = Math.max(...blocks.map(b => b.x + b.w)), by2 = Math.max(...blocks.map(b => b.y + b.h));
+    let x1 = snapV(bx1 - pad), y1 = snapV(by1 - pad - 16), x2 = snapV(bx2 + pad), y2 = snapV(by2 + pad);
+    // inside another frame: stay within it and below its name
+    const parent = framesByArea().reverse().find(p => p.x <= bx1 && p.y <= by1 && p.x + p.w >= bx2 && p.y + p.h >= by2);
+    if (parent) {
+      x1 = Math.max(x1, Math.min(bx1 - 6, parent.x + 10)); y1 = Math.max(y1, Math.min(by1 - 6, parent.y + 32));
+      x2 = Math.min(x2, Math.max(bx2 + 6, parent.x + parent.w - 10)); y2 = Math.min(y2, Math.max(by2 + 6, parent.y + parent.h - 10));
+    }
+    f = newFrame(x1, y1, r2(x2 - x1), r2(y2 - y1));
+  } else {
+    const r = svg.getBoundingClientRect();
+    const c = { x: (r.width / 2 - view.x) / view.k, y: (r.height / 2 - view.y) / view.k };
+    f = newFrame(snapV(c.x - 200), snapV(c.y - 130), 400, 260);
+  }
+  doc.frames.push(f);
+  sel = new Set([f.id]);
+  pushUndo(snap);
+  setSideTab('props'); refreshInspector(); render();
+  const inp = inspector.querySelector('[data-t=frame][data-k=name]');
+  if (inp) { inp.focus(); inp.select(); }
+}
 function deleteSelection() {
   if (!sel.size) return;
   const snap = snapshot();
+  doc.frames = doc.frames.filter(f => !sel.has(f.id));
   doc.blocks = doc.blocks.filter(b => !sel.has(b.id));
   const ids = new Set(doc.blocks.map(b => b.id));
   doc.links = doc.links.filter(l => !sel.has(l.id) && (!l.from.block || ids.has(l.from.block)) && (!l.to.block || ids.has(l.to.block)));
@@ -2066,12 +2194,15 @@ function deleteSelection() {
   refreshInspector(); render();
 }
 function copySelection() {
-  const blocks = selBlocks();
+  // a copied frame takes its content along
+  const m = startMove({ x: 0, y: 0 });
+  const blocks = m.starts.map(s => s.b).filter(o => bmap.has(o.id));
+  const frames = m.starts.map(s => s.b).filter(o => !bmap.has(o.id));
   const ids = new Set(blocks.map(b => b.id));
   const endIn = e => !e.block || ids.has(e.block);
   const links = doc.links.filter(l => sel.has(l.id) || ((l.from.block || l.to.block) && endIn(l.from) && endIn(l.to)));
-  clipboard = clone({ blocks, links });
-  return clipboard.blocks.length + clipboard.links.length;
+  clipboard = clone({ blocks, links, frames });
+  return clipboard.blocks.length + clipboard.links.length + clipboard.frames.length;
 }
 function pasteClipboard(offset = 20) {
   if (!clipboard) return;
@@ -2087,10 +2218,11 @@ function pasteClipboard(offset = 20) {
     if (c.waypoints) c.waypoints = c.waypoints.map(q => ({ x: q.x + offset, y: q.y + offset }));
     return c;
   });
-  doc.blocks.push(...nb); doc.links.push(...nl);
-  sel = new Set([...nb.map(b => b.id), ...nl.map(l => l.id)]);
+  const nf = (clipboard.frames || []).map(f => Object.assign(clone(f), { id: uid('fr'), x: f.x + offset, y: f.y + offset }));
+  doc.blocks.push(...nb); doc.links.push(...nl); doc.frames.push(...nf);
+  sel = new Set([...nb.map(b => b.id), ...nl.map(l => l.id), ...nf.map(f => f.id)]);
   // keep the clipboard relative to the pasted copies so repeated paste cascades
-  clipboard = clone({ blocks: nb, links: nl });
+  clipboard = clone({ blocks: nb, links: nl, frames: nf });
   pushUndo(snap);
   refreshInspector(); render();
 }
@@ -2102,12 +2234,10 @@ function reorder(front) {
   pushUndo(snap); render();
 }
 function nudgeSelection(dx, dy) {
-  const blocks = selBlocks();
-  if (!blocks.length) return;
-  const snap = snapshot();
-  for (const b of blocks) { b.x = r2(b.x + dx); b.y = r2(b.y + dy); }
-  for (const c of carriedWaypoints(new Set(blocks.map(b => b.id)))) c.l.waypoints = c.w.map(q => ({ x: r2(q.x + dx), y: r2(q.y + dy) }));
-  pushUndo(snap); render(); refreshInspector();
+  const m = startMove({ x: 0, y: 0 });
+  if (!m.starts.length) return;
+  applyMove(m, dx, dy);
+  pushUndo(m.snap); render(); refreshInspector();
 }
 
 /* =====================================================================
@@ -2274,12 +2404,12 @@ function toHex(c) {
 
 function refreshInspector() { refreshProps(); refreshFlows(); }
 function refreshProps() {
-  const blocks = selBlocks(), links = selLinks();
+  const blocks = selBlocks(), links = selLinks(), frames = selFrames();
   let h = '';
-  if (!blocks.length && !links.length) {
+  if (!blocks.length && !links.length && !frames.length) {
     h += `<h3>Diagram</h3>
-      <div class="muted">${doc.blocks.length} blocks · ${doc.links.length} links</div>
-      <div class="btns"><button class="btn primary" data-act="addBlock">+ Add block</button><button class="btn" data-act="settings">Settings</button></div>
+      <div class="muted">${doc.blocks.length} blocks · ${doc.links.length} links · ${doc.frames.length} frames</div>
+      <div class="btns"><button class="btn primary" data-act="addBlock">+ Add block</button><button class="btn" data-act="addFrame">+ Add frame</button><button class="btn" data-act="settings">Settings</button></div>
       <h3>How to</h3>
       <ul class="tips">
         <li><b>Double-click</b> empty canvas to add a block.</li>
@@ -2287,6 +2417,7 @@ function refreshProps() {
         <li><b>Drag a polyline segment</b> to move it. <b>Double-click</b> it, or use "Reset route" in the sidebar, to go back to automatic routing.</li>
         <li>Select a link and <b>drag its end handles</b> (or connectors) to another side or block. Drop near the center of a block for an automatic side.</li>
         <li><b>Double-click</b> a block to edit the rich-text title (Enter = new line).</li>
+        <li><b>Frames</b> group blocks: select blocks and press <b>Frame</b> in the toolbar. Drag a frame by its name or border; everything inside moves with it.</li>
         <li>Open the <b>Flows</b> tab to describe a request path or scenario as numbered steps.</li>
         <li><b>Wheel</b> zooms. <b>Drag empty canvas</b> to pan. <b>Shift + drag</b> on empty canvas selects a box.</li>
       </ul>
@@ -2327,6 +2458,21 @@ function refreshProps() {
     h += row('Highlight ring', ctl(T, 'highlight', 'checkbox', b.highlight));
     h += `<div class="btns"><button class="btn" data-act="front">Bring to front</button><button class="btn" data-act="back">Send to back</button>
       <button class="btn" data-act="defBlock" title="Use this style for new blocks">Set as default style</button>
+      <button class="btn" data-act="dup">Duplicate</button><button class="btn danger" data-act="delete">Delete</button></div>`;
+  }
+  if (frames.length) {
+    const f = frames[0], T = 'frame';
+    h += `<h3>${frames.length > 1 ? frames.length + ' frames' : 'Frame'}</h3>`;
+    h += row('Name', ctl(T, 'name', 'text', f.name, { placeholder: 'Frame name' }));
+    h += row('Name color', ctl(T, 'textColor', 'color', f.textColor));
+    h += row('Fill', ctl(T, 'fill', 'color', f.fill));
+    h += row('Fill opacity %', ctl(T, 'opacity', 'number', f.opacity, { min: 0, max: 100, step: 5 }));
+    h += row('Border', ctl(T, 'strokeStyle', 'select', f.strokeStyle, { options: OPTS.strokeStyle }));
+    h += row('Border color', ctl(T, 'stroke', 'color', f.stroke));
+    h += row('Border width', ctl(T, 'strokeWidth', 'number', f.strokeWidth, { min: 0, step: 0.5 }));
+    h += row('Corner radius', ctl(T, 'radius', 'number', f.radius, { min: 0 }));
+    h += `<div class="muted" style="font-size:12px;margin:6px 0">Blocks and frames inside move with the frame.</div>`;
+    h += `<div class="btns"><button class="btn" data-act="defFrame" title="Use this style for new frames">Set as default style</button>
       <button class="btn" data-act="dup">Duplicate</button><button class="btn danger" data-act="delete">Delete</button></div>`;
   }
   if (links.length) {
@@ -2414,7 +2560,7 @@ function applyField(el) {
   return applyValue(el.dataset.t, el.dataset.k, v);
 }
 function applyValue(t, k, v) {
-  const targets = t === 'block' ? selBlocks() : selLinks();
+  const targets = t === 'block' ? selBlocks() : t === 'frame' ? selFrames() : selLinks();
   for (const o of targets) {
     if (k.includes('.')) {
       const [w, prop] = k.split('.');
@@ -2426,6 +2572,7 @@ function applyValue(t, k, v) {
     }
     if (['w', 'h'].includes(k)) v = Math.max(10, v);
     if (['strokeWidth', 'radius', 'connSize', 'width', 'iconSize', 'fontSize'].includes(k)) v = Math.max(0, v);
+    if (k === 'opacity') v = clamp(v, 0, 100);
     o[k] = v;
   }
   return true;
@@ -2470,6 +2617,12 @@ inspector.addEventListener('click', e => {
   const snap = snapshot();
   switch (act) {
     case 'addBlock': addBlockCenter(); return;
+    case 'addFrame': addFrame(); return;
+    case 'defFrame': {
+      const fr = selFrames()[0];
+      for (const k of Object.keys(settings.frame)) if (k in fr) settings.frame[k] = fr[k];
+      markDirty(); toast('Frame style saved as default for new frames'); return;
+    }
     case 'settings': openSettings(); return;
     case 'icon': for (const b of selBlocks()) b.icon = btn.dataset.icon; break;
     case 'front': reorder(true); return;
@@ -2695,6 +2848,11 @@ const SETTINGS_SPEC = [
     ['block.fontSize', 'Font size', 'number', { min: 6 }], ['block.align', 'Text align', 'icons', { options: ICON_SETS.align }],
     ['block.valign', 'Vertical align', 'icons', { options: ICON_SETS.valign }], ['block.iconColor', 'Icon color', 'color'],
     ['block.iconSize', 'Icon size', 'number', { min: 8 }], ['block.iconPos', 'Icon position', 'icons', { options: ICON_SETS.iconPos }]]],
+  ['New frames', [
+    ['frame.fill', 'Fill', 'color'], ['frame.opacity', 'Fill opacity %', 'number', { min: 0, max: 100, step: 5 }],
+    ['frame.stroke', 'Border color', 'color'], ['frame.strokeStyle', 'Border style', 'select', { options: OPTS.strokeStyle }],
+    ['frame.strokeWidth', 'Border width', 'number', { min: 0, step: 0.5 }], ['frame.textColor', 'Name color', 'color'],
+    ['frame.radius', 'Corner radius', 'number', { min: 0 }]]],
   ['New links', [
     ['link.route', 'Routing', 'select', { options: OPTS.route }], ['link.color', 'Color', 'color'],
     ['link.width', 'Width', 'number', { min: 0.5, step: 0.5 }], ['link.style', 'Line style', 'select', { options: OPTS.lineStyle }],
@@ -2710,14 +2868,14 @@ const SETTINGS_SPEC = [
 const getPath = (o, p) => p.split('.').reduce((a, k) => a[k], o);
 const setPath = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
 function openSettings() {
-  // columns: [canvas + routing] [blocks] [block text & icon] [links]
+  // columns: [canvas + routing] [blocks] [block text & icon + frames] [links]
   const section = ([title, fields]) => `<h4>${title}</h4>` +
     fields.map(([path, label, type, extra = {}]) => {
       const c = ctl('settings', path, type, getPath(settings, path), extra);
       return type === 'icons' ? irow(label, c, extra.stack) : row(label, c);
     }).join('');
-  const [canvas, routing, ...rest] = SETTINGS_SPEC;
-  const h = [[canvas, routing], ...rest.map(sec => [sec])].map(col => `<div>${col.map(section).join('')}</div>`).join('');
+  const [canvas, routing, blocks, text, frames, links] = SETTINGS_SPEC;
+  const h = [[canvas, routing], [blocks], [text, frames], [links]].map(col => `<div>${col.map(section).join('')}</div>`).join('');
   $('#settingsBody').innerHTML = h;
   $('#settingsDlg').showModal();
 }
@@ -2760,6 +2918,10 @@ function openHelp() {
       <tr><td>Drag / handles</td><td>Move / resize (hold ${k('Alt')} to ignore the grid)</td></tr>
       <tr><td>${k('Ctrl/⌘')} + click</td><td>Add to / remove from the selection</td></tr>
       <tr><td>${k('Shift')} or ${k('Ctrl/⌘')} + drag on empty canvas</td><td>Box select</td></tr></table>
+    <h4>Frames</h4><table class="keys">
+      <tr><td>Frame (toolbar)</td><td>Add a frame around the selected blocks, or an empty one</td></tr>
+      <tr><td>Drag name / border</td><td>Move the frame with everything inside it</td></tr>
+      <tr><td>Double-click name / border</td><td>Rename</td></tr></table>
     <h4>Links</h4><table class="keys">
       <tr><td>${k('Shift')} + drag from block</td><td>Create a link; drop on a block or on empty canvas for a free end</td></tr>
       <tr><td>Drag link end / connector</td><td>Move it to another side, another block, or free space. Dropping near a block's center makes the side automatic.</td></tr>
@@ -2796,7 +2958,8 @@ function buildFileObject() {
     view: { x: r2(view.x), y: r2(view.y), k: r2(view.k * 1000) / 1000 },
     blocks: doc.blocks,
     links: doc.links,
-    flows: doc.flows
+    flows: doc.flows,
+    frames: doc.frames
   };
 }
 function loadFileObject(obj, name, handle) {
@@ -2866,7 +3029,7 @@ function download(name, text, type) {
 function newDiagram() {
   const snap = snapshot();
   if (editingId) cancelEdit();
-  doc = { blocks: [], links: [], flows: [] };
+  doc = { blocks: [], links: [], flows: [], frames: [] };
   activeFlow = null; recording = false;
   settings = loadUserDefaults();
   if (snap !== snapshot()) { undoStack.push(snap); redoStack = []; }
@@ -2890,7 +3053,7 @@ function exportSvg() {
   const css = `.bc{width:100%;height:100%;padding:6px 10px;display:flex;gap:8px;overflow:hidden;position:relative;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.25;word-break:break-word}.bc .bt{min-width:0}.bc .bi{flex:none;display:flex;align-items:center;justify-content:center;line-height:1}.bc .bi-corner{position:absolute;left:6px;top:6px}.bc p{margin:0}`;
   const out = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f1(x)} ${f1(y)} ${f1(w)} ${f1(h)}" width="${Math.ceil(w)}" height="${Math.ceil(h)}"><style>${css}</style>` +
     `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(w)}" height="${f1(h)}" fill="${esc(settings.canvas.background)}"/>` +
-    [linkLayer, blockLayer, connLayer, flowLayer].map(n => ser.serializeToString(n)).join('') + '</svg>';
+    [frameLayer, linkLayer, blockLayer, connLayer, flowLayer].map(n => ser.serializeToString(n)).join('') + '</svg>';
   download(fileName.replace(/\.json$/i, '') + '.svg', out, 'image/svg+xml');
   render();
 }
@@ -2923,7 +3086,7 @@ function toast(msg, isErr) {
    ===================================================================== */
 const COMMANDS = {
   new: newDiagram, open: openFile, save: () => saveFile(false), saveAs: () => saveFile(true), exportSvg,
-  addBlock: addBlockCenter, undo, redo, delete: deleteSelection,
+  addBlock: addBlockCenter, addFrame, undo, redo, delete: deleteSelection,
   zoomIn: () => zoomCenter(1.2), zoomOut: () => zoomCenter(1 / 1.2), fit: fitView,
   settings: openSettings, help: openHelp
 };
@@ -2951,7 +3114,7 @@ window.addEventListener('keydown', e => {
   if (mod && key === 'x') { if (copySelection()) deleteSelection(); return; }
   if (mod && key === 'v') { e.preventDefault(); pasteClipboard(); return; }
   if (mod && key === 'd') { e.preventDefault(); duplicateSelection(); return; }
-  if (mod && key === 'a') { e.preventDefault(); sel = new Set([...doc.blocks.map(b => b.id), ...doc.links.map(l => l.id)]); refreshInspector(); render(); return; }
+  if (mod && key === 'a') { e.preventDefault(); sel = new Set([...doc.blocks.map(b => b.id), ...doc.links.map(l => l.id), ...doc.frames.map(f => f.id)]); refreshInspector(); render(); return; }
   if (mod && key === '0') { e.preventDefault(); zoomCenter(1 / view.k); return; }
   if (mod) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
@@ -3014,7 +3177,8 @@ function demoDiagram() {
       { ref: 'svcA', description: 'Marks the order as paid' }
     ]
   }];
-  return { blocks, links, flows };
+  const frames = [newFrame(570, -10, 520, 520, { id: 'fr-backend', name: 'Backend' })];
+  return { blocks, links, flows, frames };
 }
 
 function init() {
