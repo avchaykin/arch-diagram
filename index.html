@@ -322,7 +322,7 @@ const FORMAT_VERSION = 1;
 
 const DEFAULT_SETTINGS = {
   canvas: { background: '#f6f7f9', gridColor: '#cfd5de', gridSize: 10, showGrid: true, snap: true },
-  routing: { clearance: 18, spacing: 8, cornerRadius: 10, bendPenalty: 40, curveTension: 0.45 },
+  routing: { clearance: 18, spacing: 8, cornerRadius: 10, bendPenalty: 40, curveTension: 0.45, straight: true },
   block: {
     w: 160, h: 72, fill: '#ffffff', stroke: '#4a5568', strokeWidth: 1.5, strokeStyle: 'solid', radius: 8,
     textColor: '#1a202c', fontSize: 14, align: 'center', valign: 'middle',
@@ -701,8 +701,11 @@ function autoSide(b, target) {
 
 /* Resolve every link end to a point (+ side normal when attached).
    All connectors sharing the same block side are spread evenly; their order
-   follows the dragged position (fixed sides) or the direction to the other end. */
-function computeEnds() {
+   follows the dragged position (fixed sides) or the direction to the other end.
+   Ends listed in `straight` (see findStraight) are anchored at a given spot and
+   the other connectors of that side are spread evenly in the gaps around them. */
+let lastStraight = new Map();
+function computeEnds(straight = lastStraight) {
   const ends = new Map();
   const groups = new Map();
   const refPoint = e => {
@@ -720,12 +723,18 @@ function computeEnds() {
       const b = e.block && bmap.get(e.block);
       if (!b) { r[which] = { x: r2(e.x ?? 0), y: r2(e.y ?? 0), block: null }; continue; }
       const fixed = e.side && e.side !== 'auto';
-      let side = fixed ? e.side : null;
+      const st = straight.get(l.id) && straight.get(l.id)[which];
+      let side = st ? st.side : fixed ? e.side : null;
       if (!side) side = (o.block === e.block) ? (which === 'from' ? 'right' : 'top') : autoSide(b, refPoint(o));
       const other = refPoint(o);
       const horiz = side === 'top' || side === 'bottom';
-      const order = fixed ? (e.t ?? 0.5) : clamp(horiz ? (other.x - b.x) / b.w : (other.y - b.y) / b.h, 0, 1);
-      r[which] = { block: b, side, t: 0.5, order, seq: groups.size * 2 + (which === 'to' ? 1 : 0) };
+      if (st) {
+        const t = clamp(horiz ? (st.c - b.x) / b.w : (st.c - b.y) / b.h, 0, 1);
+        r[which] = { block: b, side, t, order: t, anchor: true, seq: groups.size * 2 + (which === 'to' ? 1 : 0) };
+      } else {
+        const order = fixed ? (e.t ?? 0.5) : clamp(horiz ? (other.x - b.x) / b.w : (other.y - b.y) / b.h, 0, 1);
+        r[which] = { block: b, side, t: 0.5, order, seq: groups.size * 2 + (which === 'to' ? 1 : 0) };
+      }
       const key = b.id + '|' + side;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(r[which]);
@@ -734,7 +743,14 @@ function computeEnds() {
   }
   for (const arr of groups.values()) {
     arr.sort((p, q) => p.order - q.order || p.seq - q.seq);
-    arr.forEach((r, i) => { r.t = (i + 1) / (arr.length + 1); });
+    // spread the free ends evenly between the anchored ones (and the side's corners)
+    let start = 0, lo = 0;
+    for (let i = 0; i <= arr.length; i++) {
+      if (i < arr.length && !arr[i].anchor) continue;
+      const hi = i < arr.length ? arr[i].t : 1, run = arr.slice(start, i);
+      run.forEach((r, j) => { r.t = lo + (hi - lo) * (j + 1) / (run.length + 1); });
+      if (i < arr.length) { lo = arr[i].t; start = i + 1; }
+    }
   }
   for (const r of ends.values()) {
     for (const w of ['from', 'to']) {
@@ -1013,6 +1029,110 @@ function nudgeOk(pts, k, c, horiz, rects) {
   if (k - 1 >= 1 && !checkSeg(pts[k - 1], mv(A))) return false;
   if (k + 2 <= n - 2 && !checkSeg(mv(B), pts[k + 2])) return false;
   return true;
+}
+
+/* ---------- straight links ----------
+   Normally a connector sits on an evenly spread slot of its side. When the
+   two ends face each other (or a free end lies in front of a side), the link
+   is instead attached straight across, as long as that does not cross any
+   block and adds no crossings with other links. */
+function geoPoints(g) {
+  if (g.type !== 'curve') return g.pts;
+  const out = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16, mt = 1 - t;
+    out.push({
+      x: mt * mt * mt * g.p1.x + 3 * mt * mt * t * g.c1.x + 3 * mt * t * t * g.c2.x + t * t * t * g.p2.x,
+      y: mt * mt * mt * g.p1.y + 3 * mt * mt * t * g.c1.y + 3 * mt * t * t * g.c2.y + t * t * t * g.p2.y
+    });
+  }
+  return out;
+}
+function crossings(P, Q) {
+  const orient = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  let n = 0;
+  for (let i = 0; i < P.length - 1; i++) {
+    const a = P[i], b = P[i + 1];
+    for (let j = 0; j < Q.length - 1; j++) {
+      const c = Q[j], d = Q[j + 1];
+      const d1 = orient(c, d, a), d2 = orient(c, d, b), d3 = orient(a, b, c), d4 = orient(a, b, d);
+      if (((d1 > EPS && d2 < -EPS) || (d1 < -EPS && d2 > EPS)) && ((d3 > EPS && d4 < -EPS) || (d3 < -EPS && d4 > EPS))) n++;
+    }
+  }
+  return n;
+}
+function findStraight(ends, geo) {
+  const R = settings.routing, out = new Map();
+  if (!R.straight) return out;
+  const M = 10, minGap = Math.max(12, R.spacing * 1.5);
+  const sideKey = (b, side) => b.id + '|' + side;
+  const along = side => (side === 'top' || side === 'bottom') ? 'x' : 'y';
+  // occupied spots on every block side
+  const spots = new Map();
+  const addSpot = (k, id, c) => { if (!spots.has(k)) spots.set(k, []); spots.get(k).push({ id, c }); };
+  for (const [id, r] of ends) for (const w of ['from', 'to']) {
+    const e = r[w];
+    if (e.block) addSpot(sideKey(e.block, e.side), id, e[along(e.side)]);
+  }
+  const lines = new Map();
+  for (const [id, g] of geo) lines.set(id, geoPoints(g));
+  const span = (e, link, which, axis) => { // the range an end can attach in, across the travel axis
+    if (!e.block) return { lo: e[axis], hi: e[axis], a1: e[axis === 'y' ? 'x' : 'y'], a2: e[axis === 'y' ? 'x' : 'y'] };
+    const b = e.block, horiz = axis === 'y';
+    return horiz ? { lo: b.y + M, hi: b.y + b.h - M, a1: b.x, a2: b.x + b.w } : { lo: b.x + M, hi: b.x + b.w - M, a1: b.y, a2: b.y + b.h };
+  };
+  for (const l of doc.links) {
+    if (hasWaypoints(l)) continue;
+    const r = ends.get(l.id), A = r.from, B = r.to;
+    if (!A.block && !B.block) continue;
+    if (A.block && B.block && A.block === B.block) continue;
+    for (const axis of ['y', 'x']) { // 'y': travel horizontally (left/right sides)
+      const sa = span(A, l, 'from', axis), sb = span(B, l, 'to', axis);
+      let sideA, sideB;
+      const [s1, s2] = axis === 'y' ? ['right', 'left'] : ['bottom', 'top'];
+      if (sa.a2 + 4 < sb.a1) { sideA = s1; sideB = s2; } else if (sb.a2 + 4 < sa.a1) { sideA = s2; sideB = s1; } else continue;
+      const sideOk = (e, which, side) => !e.block || !l[which].side || l[which].side === 'auto' || l[which].side === side;
+      if (!sideOk(A, 'from', sideA) || !sideOk(B, 'to', sideB)) continue;
+      const lo = Math.max(sa.lo, sb.lo), hi = Math.min(sa.hi, sb.hi);
+      if (lo > hi + EPS) continue;
+      // already straight on its spread slots: nothing to do
+      if (Math.abs(A[axis] - B[axis]) < EPS && (!A.block || A.side === sideA) && (!B.block || B.side === sideB)) break;
+      const cands = [];
+      if (A.block && A.side === sideA) cands.push(A[axis]);
+      if (B.block && B.side === sideB) cands.push(B[axis]);
+      if (!A.block) cands.push(A[axis]);
+      if (!B.block) cands.push(B[axis]);
+      cands.push((lo + hi) / 2);
+      const point = (e, side, c) => {
+        if (!e.block) return { x: e.x, y: e.y };
+        const b = e.block;
+        return axis === 'y' ? { x: side === 'right' ? b.x + b.w : b.x, y: c } : { x: c, y: side === 'bottom' ? b.y + b.h : b.y };
+      };
+      const own = lines.get(l.id) || [];
+      for (const c0 of cands) {
+        const c = r2(c0);
+        if (c < lo - EPS || c > hi + EPS) continue;
+        const free = (e, side) => !e.block || (spots.get(sideKey(e.block, side)) || []).every(sp => sp.id === l.id || Math.abs(sp.c - c) >= minGap);
+        if (!free(A, sideA) || !free(B, sideB)) continue;
+        const pA = point(A, sideA, c), pB = point(B, sideB, c);
+        const x1 = Math.min(pA.x, pB.x), x2 = Math.max(pA.x, pB.x), y1 = Math.min(pA.y, pB.y), y2 = Math.max(pA.y, pB.y);
+        const hitsBlock = doc.blocks.some(b => b !== A.block && b !== B.block && x2 > b.x - 1 && x1 < b.x + b.w + 1 && y2 > b.y - 1 && y1 < b.y + b.h + 1);
+        if (hitsBlock) continue;
+        const seg = [pA, pB];
+        let now = 0, before = 0;
+        for (const [id, pts] of lines) if (id !== l.id) { now += crossings(seg, pts); before += crossings(own, pts); }
+        if (now > before) continue;
+        out.set(l.id, { from: A.block ? { side: sideA, c } : null, to: B.block ? { side: sideB, c } : null });
+        lines.set(l.id, seg);
+        for (const sp of spots.values()) for (let i = sp.length - 1; i >= 0; i--) if (sp[i].id === l.id) sp.splice(i, 1);
+        if (A.block) addSpot(sideKey(A.block, sideA), l.id, c);
+        if (B.block) addSpot(sideKey(B.block, sideB), l.id, c);
+        break;
+      }
+      if (out.has(l.id)) break;
+    }
+  }
+  return out;
 }
 
 /* Polyline through user-placed waypoints. The first and last bends follow
@@ -1370,8 +1490,10 @@ function doRender() {
   viewport.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
   $('#zoomLabel').textContent = Math.round(view.k * 100) + '%';
   gridLayer.innerHTML = gridSvg();
-  const ends = computeEnds();
-  const geo = routeAll(ends);
+  let ends = computeEnds(new Map());
+  let geo = routeAll(ends);
+  lastStraight = findStraight(ends, geo);
+  if (lastStraight.size) { ends = computeEnds(lastStraight); geo = routeAll(ends); }
   lastGeo = geo;
   let ls = '', cs = '';
   for (const l of doc.links) {
@@ -2347,7 +2469,8 @@ const SETTINGS_SPEC = [
     ['routing.spacing', 'Spacing between links', 'number', { min: 0, max: 50 }],
     ['routing.cornerRadius', 'Corner radius', 'number', { min: 0, max: 80 }],
     ['routing.bendPenalty', 'Bend penalty', 'number', { min: 0, max: 1000, step: 5 }],
-    ['routing.curveTension', 'Curve tension', 'number', { min: 0.05, max: 1.5, step: 0.05 }]]],
+    ['routing.curveTension', 'Curve tension', 'number', { min: 0.05, max: 1.5, step: 0.05 }],
+    ['routing.straight', 'Straight links when possible', 'checkbox']]],
   ['New blocks', [
     ['block.w', 'Width', 'number', { min: 10 }], ['block.h', 'Height', 'number', { min: 10 }],
     ['block.fill', 'Fill', 'color'], ['block.stroke', 'Border color', 'color'],
