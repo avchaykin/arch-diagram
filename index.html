@@ -1,0 +1,2084 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arch Diagram</title>
+<style>
+  :root {
+    --ui-bg: #ffffff;
+    --ui-bg2: #f3f4f6;
+    --ui-border: #e2e5ea;
+    --ui-text: #1f2937;
+    --ui-muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: rgba(37, 99, 235, .12);
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ui-text); background: var(--ui-bg); display: flex; flex-direction: column; overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+
+  /* ---------- toolbar ---------- */
+  #toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--ui-border);
+    background: var(--ui-bg); flex-wrap: wrap; min-height: 46px; z-index: 5;
+  }
+  .brand { font-weight: 700; margin-right: 8px; white-space: nowrap; }
+  .brand small { font-weight: 400; color: var(--ui-muted); margin-left: 4px; }
+  .tgroup { display: flex; gap: 2px; padding: 0 6px; border-left: 1px solid var(--ui-border); align-items: center; }
+  .tbtn {
+    border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 5px 8px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .tbtn:hover { background: var(--ui-bg2); border-color: var(--ui-border); }
+  .tbtn svg { width: 16px; height: 16px; }
+  .tbtn:disabled { opacity: .4; cursor: default; }
+  #zoomLabel { min-width: 46px; text-align: center; color: var(--ui-muted); cursor: pointer; }
+  #fileName { margin-left: auto; color: var(--ui-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+  #toolbar a.tbtn { color: inherit; text-decoration: none; }
+
+  /* ---------- main ---------- */
+  main { flex: 1; display: flex; min-height: 0; }
+  #stage { position: relative; flex: 1; overflow: hidden; outline: none; }
+  #svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+  #svg .block { cursor: move; }
+  #svg.shift .block, #svg.shift .conn { cursor: crosshair; }
+  #svg .link .hit { cursor: pointer; }
+  #svg .conn, #svg .end-handle { cursor: grab; }
+  #stage.panning #svg, #stage.panning #svg * { cursor: grab !important; }
+  .h-nw, .h-se { cursor: nwse-resize; } .h-ne, .h-sw { cursor: nesw-resize; }
+  .h-n, .h-s { cursor: ns-resize; } .h-e, .h-w { cursor: ew-resize; }
+
+  /* block content inside foreignObject */
+  .bc {
+    width: 100%; height: 100%; padding: 6px 10px; display: flex; gap: 8px; overflow: hidden; position: relative;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.25; word-break: break-word; pointer-events: none; user-select: none; box-sizing: border-box;
+  }
+  .bc .bt { min-width: 0; }
+  .bc .bi { flex: none; display: flex; align-items: center; justify-content: center; line-height: 1; }
+  .bc .bi-corner { position: absolute; left: 6px; top: 6px; }
+  .bc p { margin: 0; }
+
+  /* rich text editor overlay */
+  #edWrap {
+    position: absolute; transform-origin: 0 0; display: flex; padding: 6px 10px; overflow: hidden;
+    background: rgba(255,255,255,.85); outline: 2px solid var(--accent); z-index: 4;
+  }
+  #edInner {
+    outline: none; min-width: 20px; max-width: 100%; max-height: 100%; overflow: auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.25; word-break: break-word;
+  }
+  #edInner p { margin: 0; }
+  #edBar {
+    position: absolute; z-index: 6; display: flex; gap: 2px; align-items: center; padding: 3px; background: var(--ui-bg);
+    border: 1px solid var(--ui-border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+  }
+  #edBar button { border: 0; background: transparent; border-radius: 5px; min-width: 26px; height: 26px; cursor: pointer; }
+  #edBar button:hover { background: var(--ui-bg2); }
+  #edBar select { height: 26px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-bg); }
+  #edBar input[type=color] { width: 28px; height: 26px; padding: 1px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-bg); }
+  #edBar .sep { width: 1px; height: 18px; background: var(--ui-border); margin: 0 3px; }
+
+  #hint {
+    position: absolute; left: 10px; bottom: 8px; color: var(--ui-muted); font-size: 12px; pointer-events: none;
+    background: rgba(255,255,255,.75); padding: 2px 8px; border-radius: 6px;
+  }
+  #toast {
+    position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 12px;
+    border-radius: 8px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10;
+  }
+  #toast.show { opacity: .92; }
+
+  /* ---------- inspector ---------- */
+  #inspector {
+    width: 290px; flex: none; border-left: 1px solid var(--ui-border); overflow-y: auto; background: var(--ui-bg); padding: 10px 12px 40px;
+  }
+  #inspector h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ui-muted); margin: 14px 0 6px; }
+  #inspector h3:first-child { margin-top: 2px; }
+  .row { display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: center; margin: 4px 0; }
+  .row > span { color: var(--ui-muted); font-size: 12px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .row2 .row { grid-template-columns: auto 1fr; }
+  .row2 .row > span { min-width: 14px; }
+  .row input[type=text], .row input[type=number], .row select, .row textarea {
+    width: 100%; padding: 4px 6px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg); min-width: 0;
+  }
+  .row input[type=color] { width: 100%; height: 26px; padding: 1px 2px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg); }
+  .row input[type=checkbox] { justify-self: start; }
+  .btns { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+  .btn {
+    border: 1px solid var(--ui-border); background: var(--ui-bg); border-radius: 6px; padding: 4px 9px; cursor: pointer;
+  }
+  .btn:hover { background: var(--ui-bg2); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.danger { color: var(--danger); }
+  .icon-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin: 4px 0 6px; }
+  .icon-grid button {
+    border: 1px solid var(--ui-border); background: var(--ui-bg); border-radius: 5px; height: 30px; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center; color: #374151;
+  }
+  .icon-grid button.on { border-color: var(--accent); background: var(--accent-soft); }
+  .icon-grid svg { width: 18px; height: 18px; }
+  .muted { color: var(--ui-muted); }
+  .kbd { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--ui-bg2); border: 1px solid var(--ui-border); border-radius: 4px; padding: 0 4px; }
+  ul.tips { padding-left: 16px; margin: 6px 0; color: var(--ui-muted); }
+  ul.tips li { margin: 3px 0; }
+
+  /* ---------- dialogs ---------- */
+  dialog { border: 1px solid var(--ui-border); border-radius: 12px; padding: 0; width: min(560px, calc(100vw - 32px)); box-shadow: 0 20px 50px rgba(0,0,0,.2); }
+  dialog::backdrop { background: rgba(17,24,39,.25); }
+  .dlg-head { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--ui-border); font-weight: 600; }
+  .dlg-head button { margin-left: auto; }
+  .dlg-body { padding: 8px 16px 12px; max-height: 70vh; overflow: auto; }
+  .dlg-body .row { grid-template-columns: 200px 1fr; }
+  .dlg-foot { display: flex; gap: 6px; padding: 10px 16px; border-top: 1px solid var(--ui-border); justify-content: flex-end; flex-wrap: wrap; }
+  .dlg-body h4 { margin: 14px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ui-muted); }
+  table.keys { border-collapse: collapse; width: 100%; }
+  table.keys td { padding: 4px 6px; border-bottom: 1px solid var(--ui-bg2); vertical-align: top; }
+  table.keys td:first-child { white-space: nowrap; width: 40%; }
+
+  @media (max-width: 760px) {
+    #inspector { width: 220px; }
+    .tbtn .lbl { display: none; }
+  }
+</style>
+</head>
+<body>
+<header id="toolbar">
+  <div class="brand">Arch Diagram<small id="verLabel"></small></div>
+  <div class="tgroup">
+    <button class="tbtn" data-cmd="new" title="New diagram"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 12v6M9 15h6"/></svg><span class="lbl">New</span></button>
+    <button class="tbtn" data-cmd="open" title="Open JSON file (Ctrl/Cmd+O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="lbl">Open</span></button>
+    <button class="tbtn" data-cmd="save" title="Save (Ctrl/Cmd+S)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg><span class="lbl">Save</span></button>
+    <button class="tbtn" data-cmd="saveAs" title="Save as… (Ctrl/Cmd+Shift+S)"><span class="lbl">Save as…</span></button>
+    <button class="tbtn" data-cmd="exportSvg" title="Export as SVG image"><span class="lbl">Export SVG</span></button>
+  </div>
+  <div class="tgroup">
+    <button class="tbtn" data-cmd="addBlock" title="Add block (or double-click canvas)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg><span class="lbl">Block</span></button>
+    <button class="tbtn" data-cmd="undo" title="Undo (Ctrl/Cmd+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+    <button class="tbtn" data-cmd="redo" title="Redo (Ctrl/Cmd+Shift+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+    <button class="tbtn" data-cmd="delete" title="Delete selection (Del)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
+  </div>
+  <div class="tgroup">
+    <button class="tbtn" data-cmd="zoomOut" title="Zoom out (-)">−</button>
+    <span id="zoomLabel" title="Reset zoom to 100%">100%</span>
+    <button class="tbtn" data-cmd="zoomIn" title="Zoom in (+)">+</button>
+    <button class="tbtn" data-cmd="fit" title="Fit diagram to screen (F)"><span class="lbl">Fit</span></button>
+  </div>
+  <div class="tgroup">
+    <button class="tbtn" data-cmd="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lbl">Settings</span></button>
+    <button class="tbtn" data-cmd="help" title="Help &amp; shortcuts"><span class="lbl">Help</span></button>
+    <a class="tbtn" id="ghLink" target="_blank" rel="noopener" title="Source on GitHub"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5z"/></svg></a>
+  </div>
+  <span id="fileName"></span>
+</header>
+
+<main>
+  <div id="stage" tabindex="-1">
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs id="defs"></defs>
+      <g id="viewport">
+        <g id="gridLayer"></g>
+        <g id="linkLayer"></g>
+        <g id="blockLayer"></g>
+        <g id="connLayer"></g>
+        <g id="overlayLayer"></g>
+      </g>
+    </svg>
+    <div id="edWrap" hidden><div id="edInner" contenteditable="true" spellcheck="false"></div></div>
+    <div id="edBar" hidden>
+      <button data-ed="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+      <button data-ed="italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
+      <button data-ed="underline" title="Underline (Ctrl/Cmd+U)"><u>U</u></button>
+      <button data-ed="strikeThrough" title="Strikethrough"><s>S</s></button>
+      <span class="sep"></span>
+      <select data-ed="fontSize" title="Font size of selected text">
+        <option value="">Size</option><option value="1">XS</option><option value="2">S</option><option value="3">M</option>
+        <option value="4">L</option><option value="5">XL</option><option value="6">XXL</option>
+      </select>
+      <input type="color" data-ed="foreColor" title="Text color of selection" value="#1a202c">
+      <span class="sep"></span>
+      <button data-align="left" title="Align left">⟸</button>
+      <button data-align="center" title="Align center">≡</button>
+      <button data-align="right" title="Align right">⟹</button>
+      <span class="sep"></span>
+      <button data-ed="removeFormat" title="Clear formatting">⌫</button>
+      <button data-ed="done" title="Done (Esc / Ctrl+Enter)">✓</button>
+    </div>
+    <div id="hint">Double-click canvas: new block · Shift+drag from a block: new link · Double-click block: edit title</div>
+    <div id="toast"></div>
+  </div>
+  <aside id="inspector"></aside>
+</main>
+
+<dialog id="settingsDlg">
+  <div class="dlg-head">Settings <button class="btn" data-close>✕</button></div>
+  <div class="dlg-body" id="settingsBody"></div>
+  <div class="dlg-foot">
+    <button class="btn" data-sact="reset">Reset to factory</button>
+    <button class="btn" data-sact="saveDefaults" title="New diagrams will start with these settings">Save as my defaults</button>
+    <button class="btn primary" data-close>Close</button>
+  </div>
+</dialog>
+
+<dialog id="helpDlg">
+  <div class="dlg-head">Help <button class="btn" data-close>✕</button></div>
+  <div class="dlg-body" id="helpBody"></div>
+</dialog>
+
+<input type="file" id="fileInput" accept=".json,application/json" hidden>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   Application info (also written into every saved JSON file)
+   ===================================================================== */
+const APP_INFO = {
+  name: 'arch-diagram',
+  version: '1.0.0',
+  github: 'https://github.com/avchaykin/arch-diagram'
+};
+const FORMAT_VERSION = 1;
+
+const DEFAULT_SETTINGS = {
+  canvas: { background: '#f6f7f9', gridColor: '#cfd5de', gridSize: 10, showGrid: true, snap: true },
+  routing: { clearance: 18, spacing: 8, cornerRadius: 10, bendPenalty: 40, curveTension: 0.45 },
+  block: {
+    w: 160, h: 72, fill: '#ffffff', stroke: '#4a5568', strokeWidth: 1.5, strokeStyle: 'solid', radius: 8,
+    textColor: '#1a202c', fontSize: 14, align: 'center', valign: 'middle',
+    icon: '', iconColor: '#4a5568', iconSize: 24, iconPos: 'left',
+    badgeColor: '#e53e3e', badgeTextColor: '#ffffff'
+  },
+  link: {
+    route: 'poly', color: '#4a5568', width: 1.5, style: 'solid', startEnd: 'none', endEnd: 'arrow',
+    startConn: 'none', endConn: 'none', connColor: '#4a5568', connSize: 8, labelColor: '#374151'
+  }
+};
+
+/* =====================================================================
+   Built-in icons (24x24, stroke based)
+   ===================================================================== */
+const ICONS = {
+  server: '<rect x="3" y="3" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 6.5h.01M7 17.5h.01"/>',
+  database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  cloud: '<path d="M7 19h10a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.2 9.6 4.7 4.7 0 0 0 7 19z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.2c2.1.7 3.5 2.8 3.5 5.8"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>',
+  browser: '<rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 8h20M6 5.5h.01M9 5.5h.01"/>',
+  mobile: '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>',
+  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3M16 7l3 3M14 9l2 2"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  container: '<rect x="2" y="10" width="20" height="10" rx="1"/><path d="M6 10V6h4v4M10 10V6h4v4M14 10V6h4v4"/>',
+  layers: '<path d="M12 3 2 8l10 5 10-5z"/><path d="m2 12.5 10 5 10-5"/><path d="m2 17 10 5 10-5"/>',
+  queue: '<rect x="3" y="7" width="4" height="10" rx="1"/><rect x="10" y="7" width="4" height="10" rx="1"/><rect x="17" y="7" width="4" height="10" rx="1"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+  network: '<rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v7M5 17v-3h14v3"/>',
+  api: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/>',
+  code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
+  func: '<path d="M14 3h-1a3 3 0 0 0-3 3v12a3 3 0 0 1-3 3H6M7 10h8"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  folder: '<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  star: '<path d="m12 2 3 6.5 7 .8-5.2 4.8 1.4 7L12 17.6 5.8 21l1.4-7L2 9.3l7-.8z"/>',
+  warning: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>'
+};
+
+/* =====================================================================
+   Link end markers (drawn pointing to +x, tip at the origin)
+   fill: solid | bg | none ; inset: how much the line is shortened
+   ===================================================================== */
+const MARKERS = {
+  'none': null,
+  'arrow': { d: 'M0,0 L-11,-4.5 L-11,4.5 Z', fill: 'solid', inset: 9 },
+  'arrow-narrow': { d: 'M0,0 L-12,-3 L-12,3 Z', fill: 'solid', inset: 10 },
+  'arrow-wide': { d: 'M0,0 L-10,-7 L-10,7 Z', fill: 'solid', inset: 8 },
+  'open': { d: 'M-10,-5 L0,0 L-10,5', fill: 'none', inset: 1 },
+  'open-narrow': { d: 'M-11,-3.5 L0,0 L-11,3.5', fill: 'none', inset: 1 },
+  'open-wide': { d: 'M-8,-8 L0,0 L-8,8', fill: 'none', inset: 1 },
+  'triangle': { d: 'M0,0 L-12,-6 L-12,6 Z', fill: 'bg', inset: 12 },
+  'circle': { d: 'M0,0 A4.5,4.5 0 1,0 -9,0 A4.5,4.5 0 1,0 0,0 Z', fill: 'bg', inset: 9 },
+  'circle-filled': { d: 'M0,0 A4.5,4.5 0 1,0 -9,0 A4.5,4.5 0 1,0 0,0 Z', fill: 'solid', inset: 4.5 },
+  'square': { d: 'M0,-4.5 L-9,-4.5 L-9,4.5 L0,4.5 Z', fill: 'bg', inset: 9 },
+  'square-filled': { d: 'M0,-4.5 L-9,-4.5 L-9,4.5 L0,4.5 Z', fill: 'solid', inset: 4.5 },
+  'diamond': { d: 'M0,0 L-6,-5 L-12,0 L-6,5 Z', fill: 'bg', inset: 12 },
+  'diamond-filled': { d: 'M0,0 L-6,-5 L-12,0 L-6,5 Z', fill: 'solid', inset: 6 }
+};
+const MARKER_LABELS = {
+  'none': 'None', 'arrow': 'Arrow (full)', 'arrow-narrow': 'Arrow narrow (full)', 'arrow-wide': 'Arrow wide (full)',
+  'open': 'Arrow (lined)', 'open-narrow': 'Arrow narrow (lined)', 'open-wide': 'Arrow wide (lined)',
+  'triangle': 'Triangle', 'circle': 'Circle', 'circle-filled': 'Circle (filled)', 'square': 'Square',
+  'square-filled': 'Square (filled)', 'diamond': 'Diamond', 'diamond-filled': 'Diamond (filled)'
+};
+
+const OPTS = {
+  strokeStyle: [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted'], ['none', 'None']],
+  lineStyle: [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']],
+  route: [['poly', 'Polyline (orthogonal)'], ['curve', 'Curve'], ['line', 'Straight line']],
+  ends: Object.keys(MARKERS).map(k => [k, MARKER_LABELS[k]]),
+  conn: [['none', 'Simple'], ['circle', 'Circle'], ['square', 'Square']],
+  align: [['left', 'Left'], ['center', 'Center'], ['right', 'Right']],
+  valign: [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']],
+  iconPos: [['left', 'Left of title'], ['top', 'Above title'], ['right', 'Right of title'], ['corner', 'Top-left corner']],
+  side: [['auto', 'Auto'], ['top', 'Top'], ['right', 'Right'], ['bottom', 'Bottom'], ['left', 'Left']]
+};
+const SIDES = { top: { nx: 0, ny: -1 }, right: { nx: 1, ny: 0 }, bottom: { nx: 0, ny: 1 }, left: { nx: -1, ny: 0 } };
+
+/* =====================================================================
+   Helpers
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+const clone = o => JSON.parse(JSON.stringify(o));
+const uid = p => p + Math.random().toString(36).slice(2, 10);
+const r2 = v => Math.round(v * 100) / 100;
+const f1 = v => Math.round(v * 10) / 10;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const optVals = list => list.map(o => o[0]);
+
+function deepMerge(base, over) {
+  const out = clone(base);
+  if (!over || typeof over !== 'object') return out;
+  for (const k of Object.keys(out)) {
+    if (!(k in over)) continue;
+    if (out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) out[k] = deepMerge(out[k], over[k]);
+    else if (typeof over[k] === typeof out[k]) out[k] = over[k];
+  }
+  return out;
+}
+
+function safeColor(v, def) {
+  v = String(v ?? '').trim();
+  if (/^#[0-9a-f]{3,8}$/i.test(v) || /^[a-z]{3,20}$/i.test(v) || /^(rgb|hsl)a?\([\d.,%\s]+\)$/i.test(v)) return v;
+  return def;
+}
+const num = (v, def) => (typeof v === 'number' && isFinite(v)) ? v : (isFinite(parseFloat(v)) ? parseFloat(v) : def);
+const oneOf = (v, list, def) => list.includes(v) ? v : def;
+
+function dashArray(style, w) {
+  if (style === 'dashed') return `${f1(w * 4)} ${f1(w * 3)}`;
+  if (style === 'dotted') return `${f1(w)} ${f1(w * 1.8)}`;
+  return '';
+}
+
+/* Allow only a safe subset of rich text in block titles */
+const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'BR', 'DIV', 'P', 'SPAN', 'FONT', 'SUB', 'SUP', 'SMALL', 'BIG']);
+const DROP_TAGS = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'TEMPLATE', 'LINK', 'META', 'IMG', 'VIDEO', 'AUDIO', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'FORM']);
+const STYLE_PROPS = ['color', 'background-color', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'text-align'];
+function sanitizeHtml(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html ?? '');
+  const walk = node => {
+    for (const ch of [...node.childNodes]) {
+      if (ch.nodeType === 3) continue;
+      if (ch.nodeType !== 1) { ch.remove(); continue; }
+      if (DROP_TAGS.has(ch.tagName)) { ch.remove(); continue; }
+      if (!ALLOWED_TAGS.has(ch.tagName)) { walk(ch); ch.replaceWith(...ch.childNodes); continue; }
+      for (const a of [...ch.attributes]) {
+        const n = a.name.toLowerCase();
+        if (ch.tagName === 'FONT' && n === 'size' && /^[1-7]$/.test(a.value)) continue;
+        if (ch.tagName === 'FONT' && n === 'color' && safeColor(a.value, null)) continue;
+        if (n === 'style') {
+          const keep = [];
+          for (const p of STYLE_PROPS) {
+            const v = ch.style.getPropertyValue(p);
+            if (v && !/url|expression|[<>]/i.test(v)) keep.push([p, v]);
+          }
+          ch.removeAttribute('style');
+          for (const [p, v] of keep) ch.style.setProperty(p, v);
+          continue;
+        }
+        ch.removeAttribute(a.name);
+      }
+      walk(ch);
+    }
+  };
+  walk(tpl.content);
+  return tpl.innerHTML.trim();
+}
+function htmlToText(html) {
+  const d = document.createElement('div');
+  d.innerHTML = String(html ?? '').replace(/<br\s*\/?>/gi, ' ').replace(/<\/(div|p)>/gi, ' ');
+  return d.textContent.replace(/\s+/g, ' ').trim();
+}
+
+const measureCtx = document.createElement('canvas').getContext('2d');
+function textWidth(text, size, weight = 600) {
+  measureCtx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  return measureCtx.measureText(text).width;
+}
+
+function storageGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+function storageSet(key, val) { try { localStorage.setItem(key, val); } catch (e) { /* ignore */ } }
+
+/* =====================================================================
+   State
+   ===================================================================== */
+let settings = loadUserDefaults();
+let doc = { blocks: [], links: [] };
+let view = { x: 0, y: 0, k: 1 };
+let sel = new Set();
+let undoStack = [], redoStack = [];
+let fileHandle = null, fileName = 'untitled.json', dirty = false;
+let drag = null, editingId = null, spaceDown = false;
+let bmap = new Map();
+let lastGeo = new Map();
+let clipboard = null;
+let inspSnap = null;
+
+const svg = $('#svg'), stage = $('#stage'), viewport = $('#viewport');
+const gridLayer = $('#gridLayer'), linkLayer = $('#linkLayer'), blockLayer = $('#blockLayer');
+const connLayer = $('#connLayer'), overlayLayer = $('#overlayLayer'), defs = $('#defs');
+const inspector = $('#inspector');
+const edWrap = $('#edWrap'), edInner = $('#edInner'), edBar = $('#edBar');
+
+function loadUserDefaults() {
+  let saved = null;
+  try { saved = JSON.parse(storageGet('archdiagram.defaults') || 'null'); } catch (e) { saved = null; }
+  return deepMerge(DEFAULT_SETTINGS, saved);
+}
+
+/* =====================================================================
+   Model
+   ===================================================================== */
+function newBlock(x, y, props = {}) {
+  const d = settings.block;
+  return Object.assign({
+    id: uid('b'), x, y, w: d.w, h: d.h,
+    title: 'Block',
+    fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth, strokeStyle: d.strokeStyle, radius: d.radius,
+    textColor: d.textColor, fontSize: d.fontSize, align: d.align, valign: d.valign,
+    icon: d.icon, iconColor: d.iconColor, iconSize: d.iconSize, iconPos: d.iconPos,
+    badge: '', badgeColor: d.badgeColor, badgeTextColor: d.badgeTextColor, highlight: false
+  }, props);
+}
+function newLink(from, to, props = {}) {
+  const d = settings.link;
+  return Object.assign({
+    id: uid('l'), from, to,
+    route: d.route, color: d.color, width: d.width, style: d.style,
+    startEnd: d.startEnd, endEnd: d.endEnd,
+    startConn: d.startConn, endConn: d.endConn, connColor: d.connColor, connSize: d.connSize,
+    label: '', labelColor: d.labelColor
+  }, props);
+}
+
+function normBlock(o) {
+  const b = newBlock(0, 0);
+  const D = settings.block;
+  b.id = String(o.id || uid('b'));
+  for (const k of ['x', 'y']) b[k] = num(o[k], 0);
+  b.w = Math.max(10, num(o.w, D.w)); b.h = Math.max(10, num(o.h, D.h));
+  b.title = sanitizeHtml(o.title ?? '');
+  for (const k of ['fill', 'stroke', 'textColor', 'iconColor', 'badgeColor', 'badgeTextColor']) b[k] = safeColor(o[k], D[k]);
+  for (const k of ['strokeWidth', 'radius', 'fontSize', 'iconSize']) b[k] = Math.max(0, num(o[k], D[k]));
+  b.strokeStyle = oneOf(o.strokeStyle, optVals(OPTS.strokeStyle), D.strokeStyle);
+  b.align = oneOf(o.align, optVals(OPTS.align), D.align);
+  b.valign = oneOf(o.valign, optVals(OPTS.valign), D.valign);
+  b.iconPos = oneOf(o.iconPos, optVals(OPTS.iconPos), D.iconPos);
+  b.icon = String(o.icon ?? '').slice(0, 40);
+  b.badge = String(o.badge ?? '').slice(0, 60);
+  b.highlight = !!o.highlight;
+  return b;
+}
+function normEnd(e) {
+  e = e || {};
+  if (e.block) {
+    const out = { block: String(e.block), side: oneOf(e.side, optVals(OPTS.side), 'auto') };
+    if (out.side !== 'auto') out.t = clamp(num(e.t, 0.5), 0, 1);
+    return out;
+  }
+  return { x: num(e.x, 0), y: num(e.y, 0) };
+}
+function normLink(o) {
+  const l = newLink(normEnd(o.from), normEnd(o.to));
+  const D = settings.link;
+  l.id = String(o.id || uid('l'));
+  l.route = oneOf(o.route, optVals(OPTS.route), D.route);
+  l.style = oneOf(o.style, optVals(OPTS.lineStyle), D.style);
+  l.startEnd = oneOf(o.startEnd, Object.keys(MARKERS), D.startEnd);
+  l.endEnd = oneOf(o.endEnd, Object.keys(MARKERS), D.endEnd);
+  l.startConn = oneOf(o.startConn, optVals(OPTS.conn), D.startConn);
+  l.endConn = oneOf(o.endConn, optVals(OPTS.conn), D.endConn);
+  for (const k of ['color', 'connColor', 'labelColor']) l[k] = safeColor(o[k], D[k]);
+  l.width = clamp(num(o.width, D.width), 0.25, 20);
+  l.connSize = clamp(num(o.connSize, D.connSize), 2, 40);
+  l.label = String(o.label ?? '').slice(0, 200);
+  return l;
+}
+function normalizeDoc(data) {
+  const blocks = Array.isArray(data.blocks) ? data.blocks.filter(o => o && typeof o === 'object').map(normBlock) : [];
+  const seen = new Set();
+  for (const b of blocks) { if (seen.has(b.id)) b.id = uid('b'); seen.add(b.id); }
+  const ids = new Set(blocks.map(b => b.id));
+  const links = (Array.isArray(data.links) ? data.links : []).filter(o => o && typeof o === 'object').map(normLink);
+  for (const l of links) {
+    if (seen.has(l.id)) l.id = uid('l');
+    seen.add(l.id);
+    for (const w of ['from', 'to']) if (l[w].block && !ids.has(l[w].block)) l[w] = { x: 0, y: 0 };
+  }
+  return { blocks, links };
+}
+
+const linkById = id => doc.links.find(l => l.id === id);
+const selBlocks = () => doc.blocks.filter(b => sel.has(b.id));
+const selLinks = () => doc.links.filter(l => sel.has(l.id));
+
+/* =====================================================================
+   Undo / redo / dirty
+   ===================================================================== */
+const snapshot = () => JSON.stringify({ blocks: doc.blocks, links: doc.links });
+function pushUndo(snap) {
+  if (snap === snapshot()) return;
+  undoStack.push(snap);
+  if (undoStack.length > 300) undoStack.shift();
+  redoStack = [];
+  markDirty();
+}
+function restore(snap) {
+  doc = JSON.parse(snap);
+  bmap = new Map(doc.blocks.map(b => [b.id, b]));
+  for (const id of [...sel]) if (!bmap.has(id) && !linkById(id)) sel.delete(id);
+  markDirty(); render(); refreshInspector();
+}
+function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+
+let autosaveTimer = null;
+function markDirty() {
+  dirty = true; updateTitle();
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => storageSet('archdiagram.autosave', JSON.stringify({ fileName, data: buildFileObject() })), 400);
+}
+function updateTitle() {
+  document.title = `${dirty ? '• ' : ''}${fileName} — Arch Diagram`;
+  $('#fileName').textContent = (dirty ? '● ' : '') + fileName + (fileHandle ? '' : (window.showSaveFilePicker ? '' : ' (download mode)'));
+}
+
+/* =====================================================================
+   Geometry: ports, routing
+   ===================================================================== */
+const center = b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+function sidePoint(b, side, t) {
+  switch (side) {
+    case 'top': return { x: b.x + b.w * t, y: b.y };
+    case 'bottom': return { x: b.x + b.w * t, y: b.y + b.h };
+    case 'left': return { x: b.x, y: b.y + b.h * t };
+    default: return { x: b.x + b.w, y: b.y + b.h * t };
+  }
+}
+function autoSide(b, target) {
+  const c = center(b);
+  const dx = (target.x - c.x) / Math.max(1, b.w / 2), dy = (target.y - c.y) / Math.max(1, b.h / 2);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left';
+  return dy >= 0 ? 'bottom' : 'top';
+}
+
+/* Resolve every link end to a point (+ side normal when attached).
+   Auto-sided connectors sharing the same block side are spread evenly. */
+function computeEnds() {
+  const ends = new Map();
+  const groups = new Map();
+  const refPoint = e => {
+    if (e.block && bmap.has(e.block)) {
+      const b = bmap.get(e.block);
+      if (e.side && e.side !== 'auto') return sidePoint(b, e.side, e.t ?? 0.5);
+      return center(b);
+    }
+    return { x: e.x, y: e.y };
+  };
+  for (const l of doc.links) {
+    const r = {};
+    for (const which of ['from', 'to']) {
+      const e = l[which], o = l[which === 'from' ? 'to' : 'from'];
+      const b = e.block && bmap.get(e.block);
+      if (!b) { r[which] = { x: r2(e.x ?? 0), y: r2(e.y ?? 0), block: null }; continue; }
+      const fixed = e.side && e.side !== 'auto';
+      let side = fixed ? e.side : null;
+      if (!side) side = (o.block === e.block) ? (which === 'from' ? 'right' : 'top') : autoSide(b, refPoint(o));
+      r[which] = { block: b, side, auto: !fixed, t: fixed ? (e.t ?? 0.5) : 0.5, other: refPoint(o) };
+      if (!fixed) {
+        const key = b.id + '|' + side;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r[which]);
+      }
+    }
+    ends.set(l.id, r);
+  }
+  for (const [key, arr] of groups) {
+    const side = key.split('|')[1];
+    const horiz = side === 'top' || side === 'bottom';
+    arr.sort((p, q) => horiz ? p.other.x - q.other.x : p.other.y - q.other.y);
+    arr.forEach((r, i) => { r.t = (i + 1) / (arr.length + 1); });
+  }
+  for (const r of ends.values()) {
+    for (const w of ['from', 'to']) {
+      const e = r[w];
+      if (!e.block) continue;
+      const p = sidePoint(e.block, e.side, e.t);
+      e.x = r2(p.x); e.y = r2(p.y);
+      e.nx = SIDES[e.side].nx; e.ny = SIDES[e.side].ny;
+    }
+  }
+  return ends;
+}
+
+class Heap {
+  constructor() { this.k = []; this.v = []; }
+  get size() { return this.k.length; }
+  push(key, val) {
+    const k = this.k, v = this.v;
+    let i = k.length; k.push(key); v.push(val);
+    while (i > 0) { const p = (i - 1) >> 1; if (k[p] <= key) break; k[i] = k[p]; v[i] = v[p]; i = p; }
+    k[i] = key; v[i] = val;
+  }
+  pop() {
+    const k = this.k, v = this.v, top = v[0];
+    const lk = k.pop(), lv = v.pop(), n = k.length;
+    if (n) {
+      let i = 0;
+      for (;;) {
+        let c = 2 * i + 1; if (c >= n) break;
+        if (c + 1 < n && k[c + 1] < k[c]) c++;
+        if (k[c] >= lk) break;
+        k[i] = k[c]; v[i] = v[c]; i = c;
+      }
+      k[i] = lk; v[i] = lv;
+    }
+    return top;
+  }
+}
+
+const EPS = 0.01;
+const strictIn = (o, p) => p.x > o.x1 + EPS && p.x < o.x2 - EPS && p.y > o.y1 + EPS && p.y < o.y2 - EPS;
+const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
+const dirIndex = (nx, ny) => nx > 0 ? 0 : ny > 0 ? 1 : nx < 0 ? 2 : 3;
+
+function uniqSorted(arr) {
+  arr = arr.map(r2).sort((a, b) => a - b);
+  const out = [];
+  for (const v of arr) if (!out.length || v - out[out.length - 1] > EPS) out.push(v);
+  return out;
+}
+function findIdx(arr, v) { // first index with arr[i] >= v - EPS
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v - EPS) lo = m + 1; else hi = m; }
+  return lo;
+}
+function simplify(pts) {
+  const a = [];
+  for (const p of pts) {
+    const q = a[a.length - 1];
+    if (!q || Math.abs(q.x - p.x) > EPS || Math.abs(q.y - p.y) > EPS) a.push({ x: p.x, y: p.y });
+  }
+  for (let i = 1; i < a.length - 1;) {
+    const A = a[i - 1], B = a[i], C = a[i + 1];
+    if ((Math.abs(A.x - B.x) < EPS && Math.abs(B.x - C.x) < EPS) || (Math.abs(A.y - B.y) < EPS && Math.abs(B.y - C.y) < EPS)) a.splice(i, 1);
+    else i++;
+  }
+  return a;
+}
+
+/* Orthogonal A* on a sparse grid made from inflated block edges,
+   port stubs and channel midlines. Penalises bends and overlap with
+   already routed polylines. */
+function astar(s1, s2, d1, d2, allObs, used, R, margin) {
+  let bx1, by1, bx2, by2, obs;
+  if (margin === Infinity) {
+    obs = allObs;
+    bx1 = Math.min(s1.x, s2.x); by1 = Math.min(s1.y, s2.y); bx2 = Math.max(s1.x, s2.x); by2 = Math.max(s1.y, s2.y);
+    for (const o of obs) { bx1 = Math.min(bx1, o.x1); by1 = Math.min(by1, o.y1); bx2 = Math.max(bx2, o.x2); by2 = Math.max(by2, o.y2); }
+    bx1 -= R.clearance * 2; by1 -= R.clearance * 2; bx2 += R.clearance * 2; by2 += R.clearance * 2;
+  } else {
+    bx1 = Math.min(s1.x, s2.x) - margin; by1 = Math.min(s1.y, s2.y) - margin;
+    bx2 = Math.max(s1.x, s2.x) + margin; by2 = Math.max(s1.y, s2.y) + margin;
+    obs = allObs.filter(o => o.x2 > bx1 && o.x1 < bx2 && o.y2 > by1 && o.y1 < by2);
+  }
+  const xr = [bx1, bx2, s1.x, s2.x], yr = [by1, by2, s1.y, s2.y];
+  for (const o of obs) {
+    if (o.x1 > bx1 && o.x1 < bx2) xr.push(o.x1);
+    if (o.x2 > bx1 && o.x2 < bx2) xr.push(o.x2);
+    if (o.y1 > by1 && o.y1 < by2) yr.push(o.y1);
+    if (o.y2 > by1 && o.y2 < by2) yr.push(o.y2);
+  }
+  const withMid = arr => {
+    const u = uniqSorted(arr), m = [];
+    for (let i = 0; i < u.length - 1; i++) if (u[i + 1] - u[i] > 4) m.push((u[i] + u[i + 1]) / 2);
+    return uniqSorted(u.concat(m));
+  };
+  const xs = withMid(xr), ys = withMid(yr);
+  const nx = xs.length, ny = ys.length, cw = nx - 1;
+  const cells = new Uint8Array(Math.max(1, (nx - 1) * (ny - 1)));
+  for (const o of obs) {
+    const i1 = findIdx(xs, o.x1), i2 = Math.min(findIdx(xs, o.x2), nx - 1);
+    const j1 = findIdx(ys, o.y1), j2 = Math.min(findIdx(ys, o.y2), ny - 1);
+    for (let j = j1; j < j2; j++) for (let i = i1; i < i2; i++) cells[j * cw + i] = 1;
+  }
+  const cellB = (i, j) => i >= 0 && j >= 0 && i < nx - 1 && j < ny - 1 && cells[j * cw + i] === 1;
+  const edgeBlocked = (i, j, ni, nj) => {
+    let mx, my;
+    if (nj === j) {
+      const ci = Math.min(i, ni);
+      if (!(cellB(ci, j - 1) && cellB(ci, j))) return false;
+      mx = (xs[i] + xs[ni]) / 2; my = ys[j];
+    } else {
+      const cj = Math.min(j, nj);
+      if (!(cellB(i - 1, cj) && cellB(i, cj))) return false;
+      mx = xs[i]; my = (ys[j] + ys[nj]) / 2;
+    }
+    for (const o of obs) if (mx > o.x1 + EPS && mx < o.x2 - EPS && my > o.y1 + EPS && my < o.y2 - EPS) return true;
+    return false;
+  };
+  const tol = Math.max(2, R.spacing * 0.75);
+  const usedHere = used.filter(u => u.hi > (u.h ? bx1 : by1) && u.lo < (u.h ? bx2 : by2));
+  const overlapCost = (horiz, c, lo, hi) => {
+    let s = 0;
+    for (const u of usedHere) {
+      if (u.h !== horiz || Math.abs(u.c - c) >= tol) continue;
+      const ov = Math.min(hi, u.hi) - Math.max(lo, u.lo);
+      if (ov > 0.5) s += ov;
+    }
+    return s > 0 ? s * 2 + 25 : 0;
+  };
+
+  const si = findIdx(xs, s1.x), sj = findIdx(ys, s1.y), gi = findIdx(xs, s2.x), gj = findIdx(ys, s2.y);
+  const startNode = sj * nx + si, goalNode = gj * nx + gi;
+  if (startNode === goalNode) return [s1];
+  const N = nx * ny * 4;
+  const g = new Float64Array(N).fill(Infinity);
+  const prev = new Int32Array(N).fill(-1);
+  const closed = new Uint8Array(N);
+  const H = (i, j) => Math.abs(xs[i] - s2.x) + Math.abs(ys[j] - s2.y);
+  const BEND = R.bendPenalty;
+  const heap = new Heap();
+  for (let d = 0; d < 4; d++) {
+    if (d1 >= 0 && d !== d1) continue;
+    const st = startNode * 4 + d; g[st] = 0; heap.push(H(si, sj), st);
+  }
+  let found = -1, iter = 0;
+  while (heap.size) {
+    if (++iter > 400000) break;
+    const st = heap.pop();
+    if (closed[st]) continue;
+    closed[st] = 1;
+    const node = st >> 2, d = st & 3;
+    if (node === goalNode) { found = st; break; }
+    const i = node % nx, j = (node / nx) | 0;
+    for (let nd = 0; nd < 4; nd++) {
+      if (nd === ((d + 2) & 3)) continue;
+      const ni = i + DX[nd], nj = j + DY[nd];
+      if (ni < 0 || nj < 0 || ni >= nx || nj >= ny) continue;
+      if (edgeBlocked(i, j, ni, nj)) continue;
+      const len = Math.abs(xs[ni] - xs[i]) + Math.abs(ys[nj] - ys[j]);
+      let cost = g[st] + len + (nd !== d ? BEND : 0);
+      if (usedHere.length) {
+        cost += (nd & 1) === 0
+          ? overlapCost(true, ys[j], Math.min(xs[i], xs[ni]), Math.max(xs[i], xs[ni]))
+          : overlapCost(false, xs[i], Math.min(ys[j], ys[nj]), Math.max(ys[j], ys[nj]));
+      }
+      const nn = nj * nx + ni;
+      if (nn === goalNode && d2 >= 0 && nd !== d2) cost += nd === ((d2 + 2) & 3) ? BEND * 3 : BEND;
+      const ns = nn * 4 + nd;
+      if (cost < g[ns]) { g[ns] = cost; prev[ns] = st; heap.push(cost + H(ni, nj), ns); }
+    }
+  }
+  if (found < 0) return null;
+  const out = [];
+  for (let st = found; st >= 0; st = prev[st]) { const node = st >> 2; out.push({ x: xs[node % nx], y: ys[(node / nx) | 0] }); }
+  return out.reverse();
+}
+
+function routeOrth(a, b, allObs, used, R) {
+  const c = R.clearance;
+  const p1 = { x: a.x, y: a.y }, p2 = { x: b.x, y: b.y };
+  const s1 = a.block ? { x: r2(a.x + a.nx * c), y: r2(a.y + a.ny * c) } : { x: r2(a.x), y: r2(a.y) };
+  const s2 = b.block ? { x: r2(b.x + b.nx * c), y: r2(b.y + b.ny * c) } : { x: r2(b.x), y: r2(b.y) };
+  const d1 = a.block ? dirIndex(a.nx, a.ny) : -1;
+  const d2 = b.block ? dirIndex(-b.nx, -b.ny) : -1;
+  const obs = allObs.filter(o => !strictIn(o, s1) && !strictIn(o, s2));
+  const span = Math.max(Math.abs(s1.x - s2.x), Math.abs(s1.y - s2.y));
+  for (const margin of [Math.max(160, span * 0.6), Infinity]) {
+    const res = astar(s1, s2, d1, d2, obs, used, R, margin);
+    if (res) { const pts = simplify([p1, ...res, p2]); return pts.length > 1 ? pts : [p1, p2]; }
+  }
+  const pts = simplify([p1, s1, { x: s2.x, y: s1.y }, s2, p2]);
+  return pts.length > 1 ? pts : [p1, p2];
+}
+
+function addUsed(used, pts) {
+  for (let k = 0; k < pts.length - 1; k++) {
+    const A = pts[k], B = pts[k + 1];
+    if (Math.abs(A.y - B.y) < EPS) used.push({ h: true, c: A.y, lo: Math.min(A.x, B.x), hi: Math.max(A.x, B.x) });
+    else if (Math.abs(A.x - B.x) < EPS) used.push({ h: false, c: A.x, lo: Math.min(A.y, B.y), hi: Math.max(A.y, B.y) });
+  }
+}
+
+/* Spread overlapping parallel inner segments of polylines by `spacing` */
+function nudge(paths, R) {
+  const sp = R.spacing;
+  if (sp <= 0) return;
+  const rects = doc.blocks.map(b => ({ x1: b.x - 1, y1: b.y - 1, x2: b.x + b.w + 1, y2: b.y + b.h + 1 }));
+  for (const horiz of [true, false]) {
+    const segs = [];
+    paths.forEach((p, pi) => {
+      const pts = p.pts;
+      for (let k = 1; k < pts.length - 2; k++) {
+        const A = pts[k], B = pts[k + 1];
+        const isH = Math.abs(A.y - B.y) < EPS, isV = Math.abs(A.x - B.x) < EPS;
+        if (horiz ? !isH : !isV) continue;
+        const P = pts[k - 1], Q = pts[k + 2];
+        segs.push({
+          pi, k, c: horiz ? A.y : A.x,
+          lo: horiz ? Math.min(A.x, B.x) : Math.min(A.y, B.y), hi: horiz ? Math.max(A.x, B.x) : Math.max(A.y, B.y),
+          key: horiz ? (P.y + Q.y) / 2 : (P.x + Q.x) / 2
+        });
+      }
+    });
+    if (segs.length < 2) continue;
+    const parent = segs.map((_, i) => i);
+    const find = i => { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
+    for (let i = 0; i < segs.length; i++) {
+      for (let j = i + 1; j < segs.length; j++) {
+        const s = segs[i], t = segs[j];
+        if (Math.abs(s.c - t.c) < sp * 0.95 && Math.min(s.hi, t.hi) - Math.max(s.lo, t.lo) > 1) parent[find(i)] = find(j);
+      }
+    }
+    const groups = new Map();
+    segs.forEach((s, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(s); });
+    for (const grp of groups.values()) {
+      if (grp.length < 2) continue;
+      grp.sort((a, b) => a.key - b.key || a.pi - b.pi);
+      const m = grp.length;
+      const cs = grp.map(s => s.c);
+      const mid = cs.reduce((a, b) => a + b, 0) / m;
+      const candidates = [mid, Math.min(...cs) + (m - 1) * sp / 2, Math.max(...cs) - (m - 1) * sp / 2];
+      for (const base of candidates) {
+        const newC = grp.map((_, i) => r2(base + (i - (m - 1) / 2) * sp));
+        if (grp.every((s, i) => nudgeOk(paths[s.pi].pts, s.k, newC[i], horiz, rects))) {
+          grp.forEach((s, i) => {
+            const pts = paths[s.pi].pts;
+            if (horiz) { pts[s.k].y = newC[i]; pts[s.k + 1].y = newC[i]; } else { pts[s.k].x = newC[i]; pts[s.k + 1].x = newC[i]; }
+          });
+          break;
+        }
+      }
+    }
+  }
+}
+function nudgeOk(pts, k, c, horiz, rects) {
+  const A = pts[k], B = pts[k + 1];
+  const x1 = horiz ? Math.min(A.x, B.x) : c, x2 = horiz ? Math.max(A.x, B.x) : c;
+  const y1 = horiz ? c : Math.min(A.y, B.y), y2 = horiz ? c : Math.max(A.y, B.y);
+  for (const r of rects) if (x2 > r.x1 && x1 < r.x2 && y2 > r.y1 && y1 < r.y2) return false;
+  // keep the stubs at the ports pointing outwards
+  const n = pts.length;
+  const stubOk = (P, S, newS) => {
+    const before = horiz ? S.y - P.y : S.x - P.x, after = horiz ? newS - P.y : newS - P.x;
+    return Math.sign(before) === Math.sign(after) && Math.abs(after) >= 4 || Math.abs(before) < EPS;
+  };
+  if (k === 1 && !stubOk(pts[0], pts[1], c)) return false;
+  if (k + 1 === n - 2 && !stubOk(pts[n - 1], pts[n - 2], c)) return false;
+  // adjacent perpendicular segments must not cross blocks after moving
+  const checkSeg = (P, Q) => {
+    const sx1 = Math.min(P.x, Q.x), sx2 = Math.max(P.x, Q.x), sy1 = Math.min(P.y, Q.y), sy2 = Math.max(P.y, Q.y);
+    for (const r of rects) if (sx2 > r.x1 && sx1 < r.x2 && sy2 > r.y1 && sy1 < r.y2) return false;
+    return true;
+  };
+  const mv = p => horiz ? { x: p.x, y: c } : { x: c, y: p.y };
+  if (k - 1 >= 1 && !checkSeg(pts[k - 1], mv(A))) return false;
+  if (k + 2 <= n - 2 && !checkSeg(mv(B), pts[k + 2])) return false;
+  return true;
+}
+
+function routeAll(ends) {
+  const R = settings.routing;
+  const geo = new Map();
+  const used = [];
+  const c = R.clearance;
+  const obstacles = doc.blocks.map(b => ({ id: b.id, x1: r2(b.x - c), y1: r2(b.y - c), x2: r2(b.x + b.w + c), y2: r2(b.y + b.h + c) }));
+  const polys = [];
+  for (const l of doc.links) {
+    const e = ends.get(l.id), a = e.from, b = e.to;
+    if (l.route === 'poly') {
+      const pts = routeOrth(a, b, obstacles, used, R);
+      addUsed(used, pts);
+      polys.push({ l, pts });
+    } else if (l.route === 'curve') {
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      const k = Math.max(30, dist * R.curveTension);
+      const ctrl = (p, q) => p.block ? { x: p.x + p.nx * k, y: p.y + p.ny * k } : { x: p.x + (q.x - p.x) * 0.3, y: p.y + (q.y - p.y) * 0.3 };
+      geo.set(l.id, { type: 'curve', p1: { x: a.x, y: a.y }, c1: ctrl(a, b), c2: ctrl(b, a), p2: { x: b.x, y: b.y } });
+    } else {
+      geo.set(l.id, { type: 'line', pts: [{ x: a.x, y: a.y }, { x: b.x, y: b.y }] });
+    }
+  }
+  nudge(polys, R);
+  for (const p of polys) geo.set(p.l.id, { type: 'poly', pts: p.pts });
+  return geo;
+}
+
+/* ---------- path building ---------- */
+function roundedPath(pts, r) {
+  if (pts.length < 2) return '';
+  let d = `M${f1(pts[0].x)},${f1(pts[0].y)}`;
+  const last = pts.length - 1;
+  for (let i = 1; i < last; i++) {
+    const A = pts[i - 1], B = pts[i], C = pts[i + 1];
+    const l1 = Math.hypot(B.x - A.x, B.y - A.y), l2 = Math.hypot(C.x - B.x, C.y - B.y);
+    const rr = Math.min(r, i === 1 ? l1 : l1 / 2, i + 1 === last ? l2 : l2 / 2);
+    const cross = (B.x - A.x) * (C.y - B.y) - (B.y - A.y) * (C.x - B.x);
+    if (rr < 0.5 || Math.abs(cross) < EPS) { d += ` L${f1(B.x)},${f1(B.y)}`; continue; }
+    const ax = B.x + (A.x - B.x) / l1 * rr, ay = B.y + (A.y - B.y) / l1 * rr;
+    const cx = B.x + (C.x - B.x) / l2 * rr, cy = B.y + (C.y - B.y) / l2 * rr;
+    d += ` L${f1(ax)},${f1(ay)} A${f1(rr)},${f1(rr)} 0 0 ${cross > 0 ? 1 : 0} ${f1(cx)},${f1(cy)}`;
+  }
+  d += ` L${f1(pts[last].x)},${f1(pts[last].y)}`;
+  return d;
+}
+function geoPath(g) {
+  if (g.type === 'curve') return `M${f1(g.p1.x)},${f1(g.p1.y)} C${f1(g.c1.x)},${f1(g.c1.y)} ${f1(g.c2.x)},${f1(g.c2.y)} ${f1(g.p2.x)},${f1(g.p2.y)}`;
+  if (g.type === 'poly') return roundedPath(g.pts, settings.routing.cornerRadius);
+  return roundedPath(g.pts, 0);
+}
+/* Direction pointing out of the path at an end (unit vector) and its end point */
+function endInfo(g, which) {
+  let E, P;
+  if (g.type === 'curve') {
+    if (which === 'to') { E = g.p2; P = dist(g.c2, g.p2) > EPS ? g.c2 : g.p1; }
+    else { E = g.p1; P = dist(g.c1, g.p1) > EPS ? g.c1 : g.p2; }
+  } else {
+    const n = g.pts.length;
+    if (which === 'to') { E = g.pts[n - 1]; P = g.pts[n - 2]; } else { E = g.pts[0]; P = g.pts[1]; }
+  }
+  const L = dist(P, E) || 1;
+  return { E, ux: (E.x - P.x) / L, uy: (E.y - P.y) / L, segLen: dist(P, E) };
+}
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function moveEnd(g, which, nx, ny) {
+  if (g.type === 'curve') { if (which === 'to') g.p2 = { x: nx, y: ny }; else g.p1 = { x: nx, y: ny }; }
+  else { const i = which === 'to' ? g.pts.length - 1 : 0; g.pts[i] = { x: nx, y: ny }; }
+}
+function pointAtMiddle(g) {
+  if (g.type === 'curve') {
+    const t = 0.5, mt = 1 - t;
+    return {
+      x: mt * mt * mt * g.p1.x + 3 * mt * mt * t * g.c1.x + 3 * mt * t * t * g.c2.x + t * t * t * g.p2.x,
+      y: mt * mt * mt * g.p1.y + 3 * mt * mt * t * g.c1.y + 3 * mt * t * t * g.c2.y + t * t * t * g.p2.y
+    };
+  }
+  const pts = g.pts;
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) total += dist(pts[i], pts[i + 1]);
+  let acc = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const L = dist(pts[i], pts[i + 1]);
+    if (acc + L >= total / 2) { const t = L ? (total / 2 - acc) / L : 0; return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * t, y: pts[i].y + (pts[i + 1].y - pts[i].y) * t }; }
+    acc += L;
+  }
+  return pts[0];
+}
+
+/* =====================================================================
+   Rendering
+   ===================================================================== */
+let renderQueued = false;
+function render() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(doRender); } }
+
+function iconHtml(b) {
+  if (!b.icon) return '';
+  const s = +b.iconSize || 24;
+  if (ICONS[b.icon]) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="${esc(b.iconColor)}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[b.icon]}</svg>`;
+  }
+  return `<span style="font-size:${s}px;color:${esc(b.iconColor)}">${esc(b.icon)}</span>`;
+}
+
+function blockSvg(b) {
+  const sw = b.strokeStyle === 'none' ? 0 : +b.strokeWidth;
+  const dash = dashArray(b.strokeStyle, sw);
+  let s = `<g class="block" data-block="${esc(b.id)}" transform="translate(${f1(b.x)},${f1(b.y)})">`;
+  if (b.highlight) {
+    s += `<rect x="-5" y="-5" width="${b.w + 10}" height="${b.h + 10}" rx="${+b.radius + 5}" fill="none" stroke="${esc(b.badgeColor)}" stroke-width="3" opacity=".55"/>`;
+  }
+  s += `<rect class="body" width="${b.w}" height="${b.h}" rx="${+b.radius}" fill="${esc(b.fill)}" stroke="${sw ? esc(b.stroke) : 'none'}" stroke-width="${sw}"${dash ? ` stroke-dasharray="${dash}"` : ''}/>`;
+
+  const pos = b.iconPos || 'left';
+  const jh = { left: 'flex-start', center: 'center', right: 'flex-end' }[b.align] || 'center';
+  const jv = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[b.valign] || 'center';
+  let dir = 'row', justify = jh, alignItems = jv;
+  if (pos === 'top') { dir = 'column'; justify = jv; alignItems = jh; }
+  else if (pos === 'right') { dir = 'row-reverse'; justify = jh === 'flex-start' ? 'flex-end' : jh === 'flex-end' ? 'flex-start' : 'center'; }
+  const icon = iconHtml(b);
+  const iconPart = icon ? (pos === 'corner' ? `<div class="bi bi-corner">${icon}</div>` : `<div class="bi">${icon}</div>`) : '';
+  const title = editingId === b.id ? '' : b.title;
+  s += `<foreignObject width="${b.w}" height="${b.h}"><div xmlns="http://www.w3.org/1999/xhtml" class="bc" style="flex-direction:${dir};justify-content:${justify};align-items:${alignItems};color:${esc(b.textColor)};font-size:${+b.fontSize}px;text-align:${b.align}">${iconPart}<div class="bt">${title}</div></div></foreignObject>`;
+
+  if (b.badge) {
+    const fs = 11, tw = Math.max(18, textWidth(b.badge, fs) + 12), bh = 18;
+    const cx = b.w - Math.min(b.w / 2, tw / 2 + 6);
+    s += `<g class="badge" transform="translate(${f1(cx)},0)"><rect x="${f1(-tw / 2)}" y="${-bh / 2}" width="${f1(tw)}" height="${bh}" rx="${bh / 2}" fill="${esc(b.badgeColor)}" stroke="#ffffff" stroke-width="1.5"/>` +
+      `<text x="0" y="0.5" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" fill="${esc(b.badgeTextColor)}">${esc(b.badge)}</text></g>`;
+  }
+  return s + '</g>';
+}
+
+function markerSvg(type, tip, ux, uy, l) {
+  const m = MARKERS[type];
+  if (!m) return '';
+  const s = Math.max(0.8, 0.7 + l.width * 0.2);
+  const ang = Math.atan2(uy, ux) * 180 / Math.PI;
+  const color = esc(l.color);
+  const fill = m.fill === 'solid' ? color : m.fill === 'bg' ? esc(settings.canvas.background) : 'none';
+  const sw = (m.fill === 'solid' ? 1 : l.width) / s;
+  return `<path d="${m.d}" transform="translate(${f1(tip.x)},${f1(tip.y)}) rotate(${f1(ang)}) scale(${f1(s * 100) / 100})" fill="${fill}" stroke="${color}" stroke-width="${f1(sw * 100) / 100}" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>`;
+}
+
+function linkSvg(l, g, ends) {
+  // shorten the line for connectors & markers, compute marker tips
+  const geom = clone(g);
+  let markers = '';
+  for (const which of ['from', 'to']) {
+    const e = ends[which];
+    const conn = which === 'from' ? l.startConn : l.endConn;
+    const mtype = which === 'from' ? l.startEnd : l.endEnd;
+    const info = endInfo(geom, which);
+    const connOff = (e.block && conn !== 'none') ? l.connSize / 2 : 0;
+    const m = MARKERS[mtype];
+    const s = Math.max(0.8, 0.7 + l.width * 0.2);
+    const inset = m ? m.inset * s : 0;
+    const total = Math.min(connOff + inset, Math.max(0, info.segLen - 1));
+    const tip = { x: info.E.x - info.ux * connOff, y: info.E.y - info.uy * connOff };
+    moveEnd(geom, which, info.E.x - info.ux * total, info.E.y - info.uy * total);
+    if (m) markers += markerSvg(mtype, tip, info.ux, info.uy, l);
+  }
+  const d = geoPath(geom);
+  const full = geoPath(g);
+  const dash = dashArray(l.style, l.width);
+  const selected = sel.has(l.id);
+  let s = `<g class="link" data-link="${esc(l.id)}">`;
+  if (selected) s += `<path d="${full}" fill="none" stroke="#2563eb" stroke-opacity=".28" stroke-width="${l.width + 7}" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>`;
+  s += `<path class="hit" d="${full}" fill="none" stroke="transparent" stroke-width="${Math.max(12, l.width + 8)}" pointer-events="stroke"/>`;
+  s += `<path d="${d}" fill="none" stroke="${esc(l.color)}" stroke-width="${l.width}"${dash ? ` stroke-dasharray="${dash}" stroke-linecap="${l.style === 'dotted' ? 'round' : 'butt'}"` : ''} stroke-linejoin="round" pointer-events="none"/>`;
+  s += markers;
+  if (l.label) {
+    const p = pointAtMiddle(g);
+    s += `<text x="${f1(p.x)}" y="${f1(p.y)}" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" fill="${esc(l.labelColor)}" stroke="${esc(settings.canvas.background)}" stroke-width="4" stroke-linejoin="round" paint-order="stroke" pointer-events="none">${esc(l.label)}</text>`;
+  }
+  return s + '</g>';
+}
+
+function connectorsSvg(l, ends) {
+  let s = '';
+  for (const which of ['from', 'to']) {
+    const e = ends[which];
+    const conn = which === 'from' ? l.startConn : l.endConn;
+    if (!e.block || conn === 'none') continue;
+    const r = l.connSize / 2;
+    const attrs = `class="conn" data-link="${esc(l.id)}" data-end="${which}" fill="${esc(l.connColor)}" stroke="${esc(settings.canvas.background)}" stroke-width="1"`;
+    if (conn === 'circle') s += `<circle cx="${f1(e.x)}" cy="${f1(e.y)}" r="${r}" ${attrs}/>`;
+    else s += `<rect x="${f1(e.x - r)}" y="${f1(e.y - r)}" width="${r * 2}" height="${r * 2}" ${attrs}/>`;
+  }
+  return s;
+}
+
+function gridSvg() {
+  const C = settings.canvas;
+  svg.style.background = C.background;
+  if (!C.showGrid) { defs.innerHTML = ''; return ''; }
+  let step = C.gridSize;
+  while (step * view.k < 8) step *= 2;
+  const r = svg.getBoundingClientRect();
+  const x0 = -view.x / view.k, y0 = -view.y / view.k, w = r.width / view.k, h = r.height / view.k;
+  const rad = 1 / view.k;
+  defs.innerHTML = `<pattern id="gridPat" width="${step}" height="${step}" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="${rad}" fill="${esc(C.gridColor)}"/><circle cx="${step}" cy="0" r="${rad}" fill="${esc(C.gridColor)}"/><circle cx="0" cy="${step}" r="${rad}" fill="${esc(C.gridColor)}"/><circle cx="${step}" cy="${step}" r="${rad}" fill="${esc(C.gridColor)}"/></pattern>`;
+  return `<rect x="${f1(x0)}" y="${f1(y0)}" width="${f1(w + 1)}" height="${f1(h + 1)}" fill="url(#gridPat)" pointer-events="none"/>`;
+}
+
+function overlaySvg(ends) {
+  const k = view.k;
+  let s = '';
+  for (const b of selBlocks()) {
+    s += `<rect x="${b.x - 3 / k}" y="${b.y - 3 / k}" width="${b.w + 6 / k}" height="${b.h + 6 / k}" fill="none" stroke="#2563eb" stroke-width="${1.2 / k}" stroke-dasharray="${4 / k} ${3 / k}" pointer-events="none"/>`;
+    if (sel.size === 1) {
+      const hs = 8 / k;
+      const pts = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
+      for (const [h, [fx, fy]] of Object.entries(pts)) {
+        s += `<rect class="h-${h}" data-handle="${h}" data-block="${esc(b.id)}" x="${f1(b.x + b.w * fx - hs / 2)}" y="${f1(b.y + b.h * fy - hs / 2)}" width="${hs}" height="${hs}" fill="#fff" stroke="#2563eb" stroke-width="${1.2 / k}"/>`;
+      }
+    }
+  }
+  for (const l of selLinks()) {
+    const e = ends.get(l.id);
+    if (!e) continue;
+    for (const which of ['from', 'to']) {
+      const p = e[which];
+      s += `<circle class="end-handle" data-link="${esc(l.id)}" data-end="${which}" cx="${f1(p.x)}" cy="${f1(p.y)}" r="${5.5 / k}" fill="${p.block ? '#fff' : '#fde68a'}" stroke="#2563eb" stroke-width="${1.5 / k}"/>`;
+    }
+  }
+  if (drag && drag.type === 'newLink' && drag.moved) {
+    const b = drag.from, c = drag.target && drag.target !== b ? center(drag.target) : drag.p;
+    const side = autoSide(b, c), p = sidePoint(b, side, 0.5);
+    s += `<line x1="${p.x}" y1="${p.y}" x2="${drag.p.x}" y2="${drag.p.y}" stroke="#2563eb" stroke-width="${1.5 / k}" stroke-dasharray="${5 / k} ${4 / k}" pointer-events="none"/>`;
+    s += `<circle cx="${drag.p.x}" cy="${drag.p.y}" r="${4 / k}" fill="#2563eb" pointer-events="none"/>`;
+  }
+  const hov = drag && (drag.type === 'newLink' ? drag.target : drag.type === 'linkEnd' ? drag.hover : null);
+  if (hov) s += `<rect x="${hov.x - 4 / k}" y="${hov.y - 4 / k}" width="${hov.w + 8 / k}" height="${hov.h + 8 / k}" rx="${(+hov.radius) + 4 / k}" fill="none" stroke="#16a34a" stroke-width="${2 / k}" pointer-events="none"/>`;
+  if (drag && drag.type === 'marquee') {
+    const r = rectOf(drag.p0, drag.p);
+    s += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="rgba(37,99,235,.08)" stroke="#2563eb" stroke-width="${1 / k}" pointer-events="none"/>`;
+  }
+  return s;
+}
+const rectOf = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) });
+
+function doRender() {
+  renderQueued = false;
+  bmap = new Map(doc.blocks.map(b => [b.id, b]));
+  viewport.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+  $('#zoomLabel').textContent = Math.round(view.k * 100) + '%';
+  gridLayer.innerHTML = gridSvg();
+  const ends = computeEnds();
+  const geo = routeAll(ends);
+  lastGeo = geo;
+  let ls = '', cs = '';
+  for (const l of doc.links) {
+    const g = geo.get(l.id), e = ends.get(l.id);
+    if (!g) continue;
+    ls += linkSvg(l, g, e);
+    cs += connectorsSvg(l, e);
+  }
+  linkLayer.innerHTML = ls;
+  blockLayer.innerHTML = doc.blocks.map(blockSvg).join('');
+  connLayer.innerHTML = cs;
+  overlayLayer.innerHTML = overlaySvg(ends);
+  positionEditor();
+  $('[data-cmd=undo]').disabled = !undoStack.length;
+  $('[data-cmd=redo]').disabled = !redoStack.length;
+}
+
+/* =====================================================================
+   Coordinates, hit testing
+   ===================================================================== */
+function toWorld(e) {
+  const r = svg.getBoundingClientRect();
+  return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k };
+}
+function blockAt(p, tol = 0) {
+  for (let i = doc.blocks.length - 1; i >= 0; i--) {
+    const b = doc.blocks[i];
+    if (p.x >= b.x - tol && p.x <= b.x + b.w + tol && p.y >= b.y - tol && p.y <= b.y + b.h + tol) return b;
+  }
+  return null;
+}
+const snapOn = e => settings.canvas.snap && !(e && e.altKey);
+const snapV = (v, e) => snapOn(e) ? Math.round(v / settings.canvas.gridSize) * settings.canvas.gridSize : r2(v);
+
+/* Where on block `b` a dragged connector at point p should attach */
+function attachTarget(b, p) {
+  const rx = (p.x - b.x) / b.w, ry = (p.y - b.y) / b.h;
+  const inner = 0.25;
+  if (rx > inner && rx < 1 - inner && ry > inner && ry < 1 - inner) return { block: b.id, side: 'auto' };
+  const d = { left: Math.abs(p.x - b.x), right: Math.abs(p.x - b.x - b.w), top: Math.abs(p.y - b.y), bottom: Math.abs(p.y - b.y - b.h) };
+  const side = Object.keys(d).reduce((a, c) => d[c] < d[a] ? c : a);
+  let t = (side === 'top' || side === 'bottom') ? rx : ry;
+  t = clamp(Math.round(t * 20) / 20, 0.05, 0.95);
+  return { block: b.id, side, t };
+}
+
+/* =====================================================================
+   Pointer interaction
+   ===================================================================== */
+svg.addEventListener('pointerdown', e => {
+  if (editingId) commitEditor();
+  stage.focus({ preventScroll: true });
+  const p = toWorld(e);
+  if (e.button === 1 || (e.button === 0 && spaceDown)) {
+    e.preventDefault();
+    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+    return;
+  }
+  if (e.button !== 0) return;
+  const t = e.target;
+  const mod = e.ctrlKey || e.metaKey;
+
+  const h = t.closest('[data-handle]');
+  if (h) {
+    const b = bmap.get(h.dataset.block);
+    drag = { type: 'resize', b, handle: h.dataset.handle, orig: { x: b.x, y: b.y, w: b.w, h: b.h }, p0: p, snap: snapshot() };
+    return;
+  }
+  const endEl = t.closest('[data-end]');
+  if (endEl) {
+    const l = linkById(endEl.dataset.link), which = endEl.dataset.end;
+    if (e.shiftKey && l[which].block && bmap.has(l[which].block)) {
+      drag = { type: 'newLink', from: bmap.get(l[which].block), p0: p, p, moved: false };
+      return;
+    }
+    if (!sel.has(l.id)) { sel = new Set([l.id]); refreshInspector(); }
+    drag = { type: 'linkEnd', l, which, p0: p, snap: snapshot(), moved: false };
+    render();
+    return;
+  }
+  const bEl = t.closest('[data-block]');
+  if (bEl) {
+    const b = bmap.get(bEl.dataset.block);
+    if (e.shiftKey) { drag = { type: 'newLink', from: b, p0: p, p, moved: false }; return; }
+    if (mod) { sel.has(b.id) ? sel.delete(b.id) : sel.add(b.id); refreshInspector(); render(); return; }
+    if (!sel.has(b.id)) { sel = new Set([b.id]); refreshInspector(); }
+    const ids = [...sel].filter(id => bmap.has(id));
+    drag = { type: 'move', starts: ids.map(id => ({ b: bmap.get(id), x: bmap.get(id).x, y: bmap.get(id).y })), p0: p, snap: snapshot(), moved: false };
+    render();
+    return;
+  }
+  const lEl = t.closest('[data-link]');
+  if (lEl) {
+    const id = lEl.dataset.link;
+    if (mod || e.shiftKey) { sel.has(id) ? sel.delete(id) : sel.add(id); } else sel = new Set([id]);
+    refreshInspector(); render();
+    return;
+  }
+  if (!(mod || e.shiftKey)) { sel.clear(); refreshInspector(); }
+  drag = { type: 'marquee', p0: p, p, base: new Set(sel) };
+  render();
+});
+
+window.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = toWorld(e);
+  switch (drag.type) {
+    case 'pan':
+      view.x = drag.vx + e.clientX - drag.sx; view.y = drag.vy + e.clientY - drag.sy;
+      render(); break;
+    case 'move': {
+      const dx = p.x - drag.p0.x, dy = p.y - drag.p0.y;
+      if (!drag.moved && Math.hypot(dx, dy) * view.k < 3) return;
+      drag.moved = true;
+      const s0 = drag.starts[0];
+      if (!s0) return;
+      const ddx = snapV(s0.x + dx, e) - s0.x, ddy = snapV(s0.y + dy, e) - s0.y;
+      for (const s of drag.starts) { s.b.x = r2(s.x + ddx); s.b.y = r2(s.y + ddy); }
+      render(); break;
+    }
+    case 'resize': {
+      const o = drag.orig, hd = drag.handle, b = drag.b, MIN = 20;
+      let x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
+      if (hd.includes('w')) x1 = Math.min(snapV(o.x + p.x - drag.p0.x, e), x2 - MIN);
+      if (hd.includes('e')) x2 = Math.max(snapV(o.x + o.w + p.x - drag.p0.x, e), x1 + MIN);
+      if (hd.includes('n')) y1 = Math.min(snapV(o.y + p.y - drag.p0.y, e), y2 - MIN);
+      if (hd.includes('s')) y2 = Math.max(snapV(o.y + o.h + p.y - drag.p0.y, e), y1 + MIN);
+      b.x = r2(x1); b.y = r2(y1); b.w = r2(x2 - x1); b.h = r2(y2 - y1);
+      drag.moved = true;
+      render(); break;
+    }
+    case 'linkEnd': {
+      if (!drag.moved && Math.hypot(p.x - drag.p0.x, p.y - drag.p0.y) * view.k < 3) return;
+      drag.moved = true;
+      const b = blockAt(p, 6 / view.k);
+      drag.hover = b;
+      drag.l[drag.which] = b ? attachTarget(b, p) : { x: snapV(p.x, e), y: snapV(p.y, e) };
+      render(); break;
+    }
+    case 'newLink':
+      drag.p = p;
+      if (Math.hypot(p.x - drag.p0.x, p.y - drag.p0.y) * view.k > 4) drag.moved = true;
+      drag.target = blockAt(p, 4 / view.k);
+      render(); break;
+    case 'marquee': {
+      drag.p = p;
+      const r = rectOf(drag.p0, p);
+      const inside = (x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+      sel = new Set(drag.base);
+      if (r.w * view.k > 3 || r.h * view.k > 3) {
+        for (const b of doc.blocks) if (inside(b.x, b.y) && inside(b.x + b.w, b.y + b.h)) sel.add(b.id);
+        for (const l of doc.links) {
+          const g = lastGeo.get(l.id);
+          if (!g) continue;
+          const pts = g.type === 'curve' ? [g.p1, g.p2] : g.pts;
+          if (pts.every(q => inside(q.x, q.y))) sel.add(l.id);
+        }
+      }
+      render(); break;
+    }
+  }
+});
+
+window.addEventListener('pointerup', e => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  switch (d.type) {
+    case 'move': case 'resize': case 'linkEnd':
+      if (d.moved) pushUndo(d.snap);
+      refreshInspector();
+      break;
+    case 'newLink': {
+      if (!d.moved) {
+        sel.has(d.from.id) ? sel.delete(d.from.id) : sel.add(d.from.id);
+        refreshInspector();
+        break;
+      }
+      const target = blockAt(d.p, 4 / view.k);
+      if (target === d.from) break;
+      const snap = snapshot();
+      const to = target ? { block: target.id, side: 'auto' } : { x: snapV(d.p.x, e), y: snapV(d.p.y, e) };
+      const l = newLink({ block: d.from.id, side: 'auto' }, to);
+      doc.links.push(l);
+      sel = new Set([l.id]);
+      pushUndo(snap);
+      refreshInspector();
+      break;
+    }
+    case 'marquee':
+      refreshInspector();
+      break;
+  }
+  render();
+});
+
+svg.addEventListener('dblclick', e => {
+  const p = toWorld(e);
+  const bEl = e.target.closest('[data-block]');
+  if (bEl && !e.target.closest('[data-handle]')) { startEdit(bmap.get(bEl.dataset.block)); return; }
+  const lEl = e.target.closest('[data-link]');
+  if (lEl) {
+    sel = new Set([lEl.dataset.link]); refreshInspector(); render();
+    const inp = inspector.querySelector('[data-k=label]');
+    if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
+  addBlockAt(p);
+});
+
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = svg.getBoundingClientRect();
+  if (e.ctrlKey || e.metaKey) {
+    zoomAt(Math.exp(-clamp(e.deltaY * (e.deltaMode ? 20 : 1), -60, 60) * 0.01), e.clientX - r.left, e.clientY - r.top);
+  } else {
+    const m = e.deltaMode ? 20 : 1;
+    view.x -= (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * m;
+    view.y -= (e.shiftKey && !e.deltaX ? 0 : e.deltaY) * m;
+    render();
+  }
+}, { passive: false });
+
+function zoomAt(factor, sx, sy) {
+  const k2 = clamp(view.k * factor, 0.1, 5);
+  const wx = (sx - view.x) / view.k, wy = (sy - view.y) / view.k;
+  view.k = k2; view.x = sx - wx * k2; view.y = sy - wy * k2;
+  render();
+}
+function zoomCenter(factor) { const r = svg.getBoundingClientRect(); zoomAt(factor, r.width / 2, r.height / 2); }
+
+function contentBBox() {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  const add = (x, y) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); };
+  for (const b of doc.blocks) { add(b.x - 8, b.y - 12); add(b.x + b.w + 8, b.y + b.h + 8); }
+  for (const g of lastGeo.values()) {
+    const pts = g.type === 'curve' ? [g.p1, g.c1, g.c2, g.p2] : g.pts;
+    for (const q of pts) add(q.x, q.y);
+  }
+  return isFinite(x1) ? { x: x1, y: y1, w: x2 - x1, h: y2 - y1 } : null;
+}
+function fitView() {
+  doRender();
+  const bb = contentBBox(), r = svg.getBoundingClientRect();
+  if (!bb) { view = { x: r.width / 2, y: r.height / 2, k: 1 }; render(); return; }
+  const pad = 40;
+  const k = clamp(Math.min((r.width - pad * 2) / Math.max(bb.w, 1), (r.height - pad * 2) / Math.max(bb.h, 1)), 0.1, 1.5);
+  view = { k, x: r.width / 2 - (bb.x + bb.w / 2) * k, y: r.height / 2 - (bb.y + bb.h / 2) * k };
+  render();
+}
+
+/* =====================================================================
+   Commands
+   ===================================================================== */
+function addBlockAt(p) {
+  const snap = snapshot();
+  const d = settings.block;
+  const b = newBlock(snapV(p.x - d.w / 2), snapV(p.y - d.h / 2));
+  doc.blocks.push(b);
+  sel = new Set([b.id]);
+  pushUndo(snap);
+  refreshInspector(); render();
+  return b;
+}
+function addBlockCenter() {
+  const r = svg.getBoundingClientRect();
+  const p = { x: (r.width / 2 - view.x) / view.k, y: (r.height / 2 - view.y) / view.k };
+  let n = 0;
+  while (blockAt(p) && n++ < 20) { p.x += 20; p.y += 20; }
+  addBlockAt(p);
+}
+function deleteSelection() {
+  if (!sel.size) return;
+  const snap = snapshot();
+  doc.blocks = doc.blocks.filter(b => !sel.has(b.id));
+  const ids = new Set(doc.blocks.map(b => b.id));
+  doc.links = doc.links.filter(l => !sel.has(l.id) && (!l.from.block || ids.has(l.from.block)) && (!l.to.block || ids.has(l.to.block)));
+  sel.clear();
+  pushUndo(snap);
+  refreshInspector(); render();
+}
+function copySelection() {
+  const blocks = selBlocks();
+  const ids = new Set(blocks.map(b => b.id));
+  const endIn = e => !e.block || ids.has(e.block);
+  const links = doc.links.filter(l => sel.has(l.id) || ((l.from.block || l.to.block) && endIn(l.from) && endIn(l.to)));
+  clipboard = clone({ blocks, links });
+  return clipboard.blocks.length + clipboard.links.length;
+}
+function pasteClipboard(offset = 20) {
+  if (!clipboard) return;
+  const snap = snapshot();
+  const map = new Map();
+  const nb = clipboard.blocks.map(b => { const c = clone(b); c.id = uid('b'); map.set(b.id, c.id); c.x += offset; c.y += offset; return c; });
+  const mapEnd = e => {
+    if (e.block) return map.has(e.block) ? Object.assign(clone(e), { block: map.get(e.block) }) : clone(e);
+    return { x: e.x + offset, y: e.y + offset };
+  };
+  const nl = clipboard.links.map(l => Object.assign(clone(l), { id: uid('l'), from: mapEnd(l.from), to: mapEnd(l.to) }));
+  doc.blocks.push(...nb); doc.links.push(...nl);
+  sel = new Set([...nb.map(b => b.id), ...nl.map(l => l.id)]);
+  // keep the clipboard relative to the pasted copies so repeated paste cascades
+  clipboard = clone({ blocks: nb, links: nl });
+  pushUndo(snap);
+  refreshInspector(); render();
+}
+function duplicateSelection() { if (copySelection()) pasteClipboard(); }
+function reorder(front) {
+  const snap = snapshot();
+  const chosen = doc.blocks.filter(b => sel.has(b.id)), rest = doc.blocks.filter(b => !sel.has(b.id));
+  doc.blocks = front ? rest.concat(chosen) : chosen.concat(rest);
+  pushUndo(snap); render();
+}
+function nudgeSelection(dx, dy) {
+  const blocks = selBlocks();
+  if (!blocks.length) return;
+  const snap = snapshot();
+  for (const b of blocks) { b.x = r2(b.x + dx); b.y = r2(b.y + dy); }
+  pushUndo(snap); render(); refreshInspector();
+}
+
+/* =====================================================================
+   Rich-text title editor
+   ===================================================================== */
+let savedRange = null;
+function startEdit(b) {
+  if (!b) return;
+  editingId = b.id;
+  sel = new Set([b.id]); refreshInspector();
+  edInner.innerHTML = b.title;
+  edWrap.hidden = false; edBar.hidden = false;
+  doRender();
+  edInner.focus();
+  const r = document.createRange(); r.selectNodeContents(edInner);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+function positionEditor() {
+  if (!editingId) return;
+  const b = bmap.get(editingId);
+  if (!b) { cancelEdit(); return; }
+  const jh = { left: 'flex-start', center: 'center', right: 'flex-end' }[b.align] || 'center';
+  const jv = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[b.valign] || 'center';
+  Object.assign(edWrap.style, {
+    left: (view.x + b.x * view.k) + 'px', top: (view.y + b.y * view.k) + 'px',
+    width: b.w + 'px', height: b.h + 'px', transform: `scale(${view.k})`,
+    justifyContent: jh, alignItems: jv, borderRadius: b.radius + 'px'
+  });
+  Object.assign(edInner.style, { color: b.textColor, fontSize: b.fontSize + 'px', textAlign: b.align });
+  const top = view.y + b.y * view.k - 40;
+  edBar.style.left = Math.max(4, view.x + b.x * view.k) + 'px';
+  edBar.style.top = (top < 4 ? view.y + (b.y + b.h) * view.k + 6 : top) + 'px';
+}
+function commitEditor() {
+  if (!editingId) return;
+  const b = bmap.get(editingId) || doc.blocks.find(x => x.id === editingId);
+  const id = editingId;
+  editingId = null;
+  edWrap.hidden = true; edBar.hidden = true;
+  if (b) {
+    let html = sanitizeHtml(edInner.innerHTML);
+    if (html === '<br>') html = '';
+    if (html !== b.title) {
+      const snap = snapshot();
+      b.title = html;
+      pushUndo(snap);
+    }
+  }
+  edInner.innerHTML = '';
+  render();
+  if (id) refreshInspector();
+}
+function cancelEdit() { editingId = null; edWrap.hidden = true; edBar.hidden = true; edInner.innerHTML = ''; render(); }
+
+document.addEventListener('selectionchange', () => {
+  if (!editingId) return;
+  const s = getSelection();
+  if (s.rangeCount && edInner.contains(s.anchorNode)) savedRange = s.getRangeAt(0).cloneRange();
+});
+function restoreRange() {
+  edInner.focus();
+  if (savedRange) { const s = getSelection(); s.removeAllRanges(); s.addRange(savedRange); }
+}
+edInner.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); commitEditor(); }
+});
+edInner.addEventListener('blur', () => {
+  setTimeout(() => {
+    if (editingId && !edWrap.contains(document.activeElement) && !edBar.contains(document.activeElement)) commitEditor();
+  }, 0);
+});
+edBar.addEventListener('mousedown', e => { if (e.target.tagName === 'BUTTON') e.preventDefault(); });
+edBar.addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.dataset.align) {
+    const b = bmap.get(editingId);
+    if (b) { const snap = snapshot(); b.align = btn.dataset.align; pushUndo(snap); positionEditor(); }
+    return;
+  }
+  const cmd = btn.dataset.ed;
+  if (cmd === 'done') { commitEditor(); return; }
+  restoreRange();
+  document.execCommand(cmd, false, null);
+});
+edBar.querySelector('select').addEventListener('change', e => {
+  if (!e.target.value) return;
+  restoreRange();
+  document.execCommand('fontSize', false, e.target.value);
+  e.target.value = '';
+});
+edBar.querySelector('input[type=color]').addEventListener('input', e => {
+  restoreRange();
+  document.execCommand('foreColor', false, e.target.value);
+});
+edBar.querySelector('input[type=color]').addEventListener('change', () => restoreRange());
+
+/* =====================================================================
+   Inspector
+   ===================================================================== */
+function ctl(t, k, type, value, extra = {}) {
+  const a = `data-t="${t}" data-k="${k}"`;
+  if (type === 'select') {
+    return `<select ${a}>${extra.options.map(([v, lbl]) => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(lbl)}</option>`).join('')}</select>`;
+  }
+  if (type === 'checkbox') return `<input type="checkbox" ${a}${value ? ' checked' : ''}>`;
+  if (type === 'number') return `<input type="number" ${a} value="${esc(value)}" step="${extra.step ?? 1}"${extra.min != null ? ` min="${extra.min}"` : ''}${extra.max != null ? ` max="${extra.max}"` : ''}>`;
+  if (type === 'color') return `<input type="color" ${a} value="${esc(toHex(value))}">`;
+  return `<input type="text" ${a} value="${esc(value)}"${extra.placeholder ? ` placeholder="${esc(extra.placeholder)}"` : ''}>`;
+}
+const row = (label, html) => `<label class="row"><span>${label}</span>${html}</label>`;
+function toHex(c) {
+  if (/^#[0-9a-f]{6}$/i.test(c)) return c;
+  if (/^#[0-9a-f]{3}$/i.test(c)) return '#' + c.slice(1).split('').map(x => x + x).join('');
+  measureCtx.fillStyle = '#000'; measureCtx.fillStyle = c;
+  const v = measureCtx.fillStyle;
+  return /^#[0-9a-f]{6}$/i.test(v) ? v : '#000000';
+}
+
+function refreshInspector() {
+  const blocks = selBlocks(), links = selLinks();
+  let h = '';
+  if (!blocks.length && !links.length) {
+    h += `<h3>Diagram</h3>
+      <div class="muted">${doc.blocks.length} blocks · ${doc.links.length} links</div>
+      <div class="btns"><button class="btn primary" data-act="addBlock">+ Add block</button><button class="btn" data-act="settings">Settings</button></div>
+      <h3>How to</h3>
+      <ul class="tips">
+        <li><b>Double-click</b> empty canvas to add a block.</li>
+        <li><b>Shift + drag</b> from a block to draw a link. Drop on another block or on empty canvas (free end).</li>
+        <li>Select a link and <b>drag its end handles</b> (or connectors) to another side or block. Drop near the center of a block for an automatic side.</li>
+        <li><b>Double-click</b> a block to edit the rich-text title (Enter = new line).</li>
+        <li><b>Wheel</b> pans, <b>Ctrl/⌘ + wheel</b> zooms, <b>Space + drag</b> pans.</li>
+      </ul>
+      <h3>About</h3>
+      <div class="muted">${esc(APP_INFO.name)} v${esc(APP_INFO.version)}<br><a href="${esc(APP_INFO.github)}" target="_blank" rel="noopener">${esc(APP_INFO.github)}</a></div>`;
+    inspector.innerHTML = h;
+    return;
+  }
+  if (blocks.length) {
+    const b = blocks[0], T = 'block';
+    h += `<h3>${blocks.length > 1 ? blocks.length + ' blocks' : 'Block'}</h3>`;
+    if (blocks.length === 1) {
+      h += `<div class="row"><span>Title</span><div class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(htmlToText(b.title)) || '<i>empty</i>'}</div></div>`;
+      h += `<div class="btns"><button class="btn" data-act="editTitle">Edit title (rich text)</button></div>`;
+      h += `<div class="row2">${row('X', ctl(T, 'x', 'number', b.x))}${row('Y', ctl(T, 'y', 'number', b.y))}</div>`;
+    }
+    h += `<div class="row2">${row('Width', ctl(T, 'w', 'number', b.w, { min: 10 }))}${row('Height', ctl(T, 'h', 'number', b.h, { min: 10 }))}</div>`;
+    h += `<h3>Style</h3>`;
+    h += row('Fill', ctl(T, 'fill', 'color', b.fill));
+    h += row('Border', ctl(T, 'strokeStyle', 'select', b.strokeStyle, { options: OPTS.strokeStyle }));
+    h += row('Border color', ctl(T, 'stroke', 'color', b.stroke));
+    h += row('Border width', ctl(T, 'strokeWidth', 'number', b.strokeWidth, { min: 0, step: 0.5 }));
+    h += row('Corner radius', ctl(T, 'radius', 'number', b.radius, { min: 0 }));
+    h += `<h3>Text</h3>`;
+    h += row('Text color', ctl(T, 'textColor', 'color', b.textColor));
+    h += row('Font size', ctl(T, 'fontSize', 'number', b.fontSize, { min: 6 }));
+    h += row('Align', ctl(T, 'align', 'select', b.align, { options: OPTS.align }));
+    h += row('Vertical', ctl(T, 'valign', 'select', b.valign, { options: OPTS.valign }));
+    h += `<h3>Icon</h3><div class="icon-grid"><button data-act="icon" data-icon="" class="${!b.icon ? 'on' : ''}" title="No icon">∅</button>` +
+      Object.keys(ICONS).map(n => `<button data-act="icon" data-icon="${n}" title="${n}" class="${b.icon === n ? 'on' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg></button>`).join('') + `</div>`;
+    h += row('Emoji / text', ctl(T, 'icon', 'text', ICONS[b.icon] ? '' : b.icon, { placeholder: 'e.g. 🚀 or λ' }));
+    h += row('Icon color', ctl(T, 'iconColor', 'color', b.iconColor));
+    h += row('Icon size', ctl(T, 'iconSize', 'number', b.iconSize, { min: 8 }));
+    h += row('Position', ctl(T, 'iconPos', 'select', b.iconPos, { options: OPTS.iconPos }));
+    h += `<h3>Badge / highlight</h3>`;
+    h += row('Badge text', ctl(T, 'badge', 'text', b.badge, { placeholder: 'e.g. NEW, v2, !' }));
+    h += row('Badge color', ctl(T, 'badgeColor', 'color', b.badgeColor));
+    h += row('Badge text color', ctl(T, 'badgeTextColor', 'color', b.badgeTextColor));
+    h += row('Highlight ring', ctl(T, 'highlight', 'checkbox', b.highlight));
+    h += `<div class="btns"><button class="btn" data-act="front">Bring to front</button><button class="btn" data-act="back">Send to back</button>
+      <button class="btn" data-act="defBlock" title="Use this style for new blocks">Set as default style</button>
+      <button class="btn" data-act="dup">Duplicate</button><button class="btn danger" data-act="delete">Delete</button></div>`;
+  }
+  if (links.length) {
+    const l = links[0], T = 'link';
+    h += `<h3>${links.length > 1 ? links.length + ' links' : 'Link'}</h3>`;
+    h += row('Label', ctl(T, 'label', 'text', l.label, { placeholder: 'optional' }));
+    h += row('Routing', ctl(T, 'route', 'select', l.route, { options: OPTS.route }));
+    h += row('Color', ctl(T, 'color', 'color', l.color));
+    h += row('Width', ctl(T, 'width', 'number', l.width, { min: 0.5, step: 0.5 }));
+    h += row('Line style', ctl(T, 'style', 'select', l.style, { options: OPTS.lineStyle }));
+    h += row('Label color', ctl(T, 'labelColor', 'color', l.labelColor));
+    h += `<h3>Ends</h3>`;
+    h += row('Start end', ctl(T, 'startEnd', 'select', l.startEnd, { options: OPTS.ends }));
+    h += row('Finish end', ctl(T, 'endEnd', 'select', l.endEnd, { options: OPTS.ends }));
+    h += `<h3>Connectors</h3>`;
+    h += row('Start', ctl(T, 'startConn', 'select', l.startConn, { options: OPTS.conn }));
+    h += row('Finish', ctl(T, 'endConn', 'select', l.endConn, { options: OPTS.conn }));
+    h += row('Color', ctl(T, 'connColor', 'color', l.connColor));
+    h += row('Size', ctl(T, 'connSize', 'number', l.connSize, { min: 2 }));
+    if (links.length === 1) {
+      const sideCtl = which => l[which].block ? ctl(T, which + '.side', 'select', l[which].side || 'auto', { options: OPTS.side }) : '<span class="muted">free end</span>';
+      h += row('Start side', sideCtl('from'));
+      h += row('Finish side', sideCtl('to'));
+      if ((l.from.block && l.from.side !== 'auto') || (l.to.block && l.to.side !== 'auto')) {
+        const pos = which => l[which].block && l[which].side !== 'auto' ? ctl(T, which + '.t', 'number', Math.round((l[which].t ?? 0.5) * 100), { min: 0, max: 100, step: 5 }) : '<span class="muted">—</span>';
+        h += `<div class="row2">${row('Start pos %', pos('from'))}${row('Finish pos %', pos('to'))}</div>`;
+      }
+    }
+    h += `<div class="btns"><button class="btn" data-act="swap">Swap direction</button>
+      <button class="btn" data-act="defLink" title="Use this style for new links">Set as default style</button>
+      <button class="btn danger" data-act="delete">Delete</button></div>`;
+  }
+  inspector.innerHTML = h;
+}
+
+function applyField(el) {
+  const t = el.dataset.t, k = el.dataset.k;
+  let v;
+  if (el.type === 'checkbox') v = el.checked;
+  else if (el.type === 'number') { v = parseFloat(el.value); if (!isFinite(v)) return false; }
+  else v = el.value;
+  const targets = t === 'block' ? selBlocks() : selLinks();
+  for (const o of targets) {
+    if (k.includes('.')) {
+      const [w, prop] = k.split('.');
+      const end = o[w];
+      if (!end || !end.block) continue;
+      if (prop === 'side') { end.side = v; if (v === 'auto') delete end.t; else if (end.t == null) end.t = 0.5; }
+      else if (prop === 't') end.t = clamp(v / 100, 0, 1);
+      continue;
+    }
+    if (['w', 'h'].includes(k)) v = Math.max(10, v);
+    if (['strokeWidth', 'radius', 'connSize', 'width', 'iconSize', 'fontSize'].includes(k)) v = Math.max(0, v);
+    o[k] = v;
+  }
+  return true;
+}
+inspector.addEventListener('input', e => {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.k) return;
+  if (!inspSnap) inspSnap = snapshot();
+  if (applyField(el)) render();
+});
+inspector.addEventListener('change', e => {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.k) return;
+  if (!inspSnap) inspSnap = snapshot();
+  applyField(el);
+  pushUndo(inspSnap);
+  inspSnap = null;
+  render();
+  if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.dataset.k === 'icon') refreshInspector();
+});
+inspector.addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const snap = snapshot();
+  switch (act) {
+    case 'addBlock': addBlockCenter(); return;
+    case 'settings': openSettings(); return;
+    case 'editTitle': startEdit(selBlocks()[0]); return;
+    case 'icon': for (const b of selBlocks()) b.icon = btn.dataset.icon; break;
+    case 'front': reorder(true); return;
+    case 'back': reorder(false); return;
+    case 'dup': duplicateSelection(); return;
+    case 'delete': deleteSelection(); return;
+    case 'swap': for (const l of selLinks()) { [l.from, l.to] = [l.to, l.from]; [l.startEnd, l.endEnd] = [l.endEnd, l.startEnd]; [l.startConn, l.endConn] = [l.endConn, l.startConn]; } break;
+    case 'defBlock': {
+      const b = selBlocks()[0];
+      for (const k of Object.keys(settings.block)) if (k in b) settings.block[k] = b[k];
+      markDirty(); toast('Block style saved as default for new blocks'); return;
+    }
+    case 'defLink': {
+      const l = selLinks()[0];
+      for (const k of Object.keys(settings.link)) if (k in l) settings.link[k] = l[k];
+      markDirty(); toast('Link style saved as default for new links'); return;
+    }
+  }
+  pushUndo(snap);
+  render(); refreshInspector();
+});
+
+/* =====================================================================
+   Settings dialog
+   ===================================================================== */
+const SETTINGS_SPEC = [
+  ['Canvas', [
+    ['canvas.background', 'Background', 'color'], ['canvas.gridColor', 'Grid color', 'color'],
+    ['canvas.gridSize', 'Grid size', 'number', { min: 2, max: 200 }], ['canvas.showGrid', 'Show grid', 'checkbox'],
+    ['canvas.snap', 'Snap to grid (hold Alt to bypass)', 'checkbox']]],
+  ['Link routing', [
+    ['routing.clearance', 'Polyline distance from blocks', 'number', { min: 2, max: 100 }],
+    ['routing.spacing', 'Polyline spacing (overlap tolerance)', 'number', { min: 0, max: 50 }],
+    ['routing.cornerRadius', 'Polyline corner radius', 'number', { min: 0, max: 80 }],
+    ['routing.bendPenalty', 'Bend penalty (fewer corners)', 'number', { min: 0, max: 1000, step: 5 }],
+    ['routing.curveTension', 'Curve tension', 'number', { min: 0.05, max: 1.5, step: 0.05 }]]],
+  ['Defaults for new blocks', [
+    ['block.w', 'Width', 'number', { min: 10 }], ['block.h', 'Height', 'number', { min: 10 }],
+    ['block.fill', 'Fill', 'color'], ['block.stroke', 'Border color', 'color'],
+    ['block.strokeWidth', 'Border width', 'number', { min: 0, step: 0.5 }],
+    ['block.strokeStyle', 'Border style', 'select', { options: OPTS.strokeStyle }],
+    ['block.radius', 'Corner radius', 'number', { min: 0 }], ['block.textColor', 'Text color', 'color'],
+    ['block.fontSize', 'Font size', 'number', { min: 6 }], ['block.align', 'Text align', 'select', { options: OPTS.align }],
+    ['block.valign', 'Vertical align', 'select', { options: OPTS.valign }], ['block.iconColor', 'Icon color', 'color'],
+    ['block.iconSize', 'Icon size', 'number', { min: 8 }], ['block.iconPos', 'Icon position', 'select', { options: OPTS.iconPos }],
+    ['block.badgeColor', 'Badge color', 'color'], ['block.badgeTextColor', 'Badge text color', 'color']]],
+  ['Defaults for new links', [
+    ['link.route', 'Routing', 'select', { options: OPTS.route }], ['link.color', 'Color', 'color'],
+    ['link.width', 'Width', 'number', { min: 0.5, step: 0.5 }], ['link.style', 'Line style', 'select', { options: OPTS.lineStyle }],
+    ['link.startEnd', 'Start end', 'select', { options: OPTS.ends }], ['link.endEnd', 'Finish end', 'select', { options: OPTS.ends }],
+    ['link.startConn', 'Start connector', 'select', { options: OPTS.conn }], ['link.endConn', 'Finish connector', 'select', { options: OPTS.conn }],
+    ['link.connColor', 'Connector color', 'color'], ['link.connSize', 'Connector size', 'number', { min: 2 }],
+    ['link.labelColor', 'Label color', 'color']]]
+];
+const getPath = (o, p) => p.split('.').reduce((a, k) => a[k], o);
+const setPath = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
+function openSettings() {
+  let h = '';
+  for (const [title, fields] of SETTINGS_SPEC) {
+    h += `<h4>${title}</h4>`;
+    for (const [path, label, type, extra] of fields) h += row(label, ctl('settings', path, type, getPath(settings, path), extra || {}));
+  }
+  $('#settingsBody').innerHTML = h;
+  $('#settingsDlg').showModal();
+}
+function onSettingsInput(e) {
+  const el = e.target;
+  if (!el.dataset || el.dataset.t !== 'settings') return;
+  let v;
+  if (el.type === 'checkbox') v = el.checked;
+  else if (el.type === 'number') { v = parseFloat(el.value); if (!isFinite(v)) return; }
+  else v = el.value;
+  setPath(settings, el.dataset.k, v);
+  markDirty(); render();
+}
+$('#settingsBody').addEventListener('input', onSettingsInput);
+$('#settingsBody').addEventListener('change', onSettingsInput);
+$('#settingsDlg').addEventListener('click', e => {
+  const a = e.target.closest('[data-sact]');
+  if (!a) return;
+  if (a.dataset.sact === 'reset') { settings = clone(DEFAULT_SETTINGS); markDirty(); render(); openSettings(); toast('Settings reset to factory values'); }
+  if (a.dataset.sact === 'saveDefaults') { storageSet('archdiagram.defaults', JSON.stringify(settings)); toast('Saved as your defaults for new diagrams'); }
+});
+for (const dlg of document.querySelectorAll('dialog')) {
+  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]') || e.target === dlg) dlg.close(); });
+}
+
+function openHelp() {
+  const k = s => `<span class="kbd">${s}</span>`;
+  $('#helpBody').innerHTML = `
+    <h4>Blocks</h4><table class="keys">
+      <tr><td>Double-click canvas</td><td>Add a block</td></tr>
+      <tr><td>Double-click block</td><td>Edit the rich-text title (Enter = new line, ${k('Esc')} or ${k('Ctrl/⌘+Enter')} to finish)</td></tr>
+      <tr><td>Drag / handles</td><td>Move / resize (hold ${k('Alt')} to ignore the grid)</td></tr>
+      <tr><td>${k('Ctrl/⌘')} + click, drag on canvas</td><td>Multi-select / box select</td></tr></table>
+    <h4>Links</h4><table class="keys">
+      <tr><td>${k('Shift')} + drag from block</td><td>Create a link; drop on a block or on empty canvas for a free end</td></tr>
+      <tr><td>Drag link end / connector</td><td>Move it to another side, another block, or free space. Dropping near a block's center makes the side automatic.</td></tr>
+      <tr><td>Double-click link</td><td>Edit its label</td></tr></table>
+    <h4>Keyboard</h4><table class="keys">
+      <tr><td>${k('Ctrl/⌘+Z')} / ${k('Ctrl/⌘+Shift+Z')}</td><td>Undo / redo</td></tr>
+      <tr><td>${k('Ctrl/⌘+C')} ${k('Ctrl/⌘+V')} ${k('Ctrl/⌘+D')}</td><td>Copy, paste, duplicate</td></tr>
+      <tr><td>${k('Ctrl/⌘+A')}</td><td>Select all</td></tr>
+      <tr><td>${k('Del')} / ${k('Backspace')}</td><td>Delete selection</td></tr>
+      <tr><td>Arrows (${k('Shift')} = grid step)</td><td>Nudge selected blocks</td></tr>
+      <tr><td>${k('Ctrl/⌘+S')} / ${k('Ctrl/⌘+Shift+S')} / ${k('Ctrl/⌘+O')}</td><td>Save / save as / open</td></tr>
+      <tr><td>${k('+')} ${k('-')} ${k('F')} ${k('Ctrl/⌘+0')}</td><td>Zoom in, out, fit, 100%</td></tr>
+      <tr><td>${k('Space')} + drag, wheel</td><td>Pan (${k('Ctrl/⌘')} + wheel zooms)</td></tr></table>
+    <h4>Files</h4>
+    <p class="muted">Diagrams are stored as JSON. In Google Chrome / Edge the file is read and written in place (File System Access API);
+    other browsers fall back to upload/download. Work is also auto-saved in this browser. You can drop a .json file onto the window to open it.</p>
+    <p class="muted">${esc(APP_INFO.name)} v${esc(APP_INFO.version)} — <a href="${esc(APP_INFO.github)}" target="_blank" rel="noopener">${esc(APP_INFO.github)}</a></p>`;
+  $('#helpDlg').showModal();
+}
+
+/* =====================================================================
+   Files (File System Access API with download/upload fallback)
+   ===================================================================== */
+const FILE_TYPES = [{ description: 'Arch diagram (JSON)', accept: { 'application/json': ['.json'] } }];
+function buildFileObject() {
+  return {
+    app: { name: APP_INFO.name, version: APP_INFO.version, github: APP_INFO.github },
+    format: FORMAT_VERSION,
+    savedAt: new Date().toISOString(),
+    settings,
+    view: { x: r2(view.x), y: r2(view.y), k: r2(view.k * 1000) / 1000 },
+    blocks: doc.blocks,
+    links: doc.links
+  };
+}
+function loadFileObject(obj, name, handle) {
+  if (!obj || typeof obj !== 'object' || (!Array.isArray(obj.blocks) && !Array.isArray(obj.links))) throw new Error('Not an arch-diagram JSON file');
+  const snap = snapshot();
+  if (editingId) cancelEdit();
+  settings = deepMerge(DEFAULT_SETTINGS, obj.settings);
+  doc = normalizeDoc(obj);
+  bmap = new Map(doc.blocks.map(b => [b.id, b]));
+  if (snap !== snapshot()) { undoStack.push(snap); redoStack = []; }
+  sel.clear();
+  fileName = name || 'untitled.json';
+  fileHandle = handle || null;
+  if (obj.view && isFinite(obj.view.k)) view = { x: num(obj.view.x, 0), y: num(obj.view.y, 0), k: clamp(num(obj.view.k, 1), 0.1, 5) };
+  else requestAnimationFrame(fitView);
+  dirty = false; updateTitle();
+  refreshInspector(); render();
+}
+async function openFile() {
+  if (window.showOpenFilePicker) {
+    try {
+      const [h] = await window.showOpenFilePicker({ types: FILE_TYPES, multiple: false });
+      const file = await h.getFile();
+      loadFileObject(JSON.parse(await file.text()), file.name, h);
+      toast('Opened ' + file.name);
+    } catch (err) { if (err.name !== 'AbortError') toast('Could not open: ' + err.message, true); }
+  } else {
+    $('#fileInput').value = '';
+    $('#fileInput').click();
+  }
+}
+$('#fileInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try { loadFileObject(JSON.parse(await file.text()), file.name, null); toast('Opened ' + file.name); }
+  catch (err) { toast('Could not open: ' + err.message, true); }
+});
+async function saveFile(saveAs = false) {
+  const json = JSON.stringify(buildFileObject(), null, 2);
+  if (window.showSaveFilePicker) {
+    try {
+      if (!fileHandle || saveAs) {
+        fileHandle = await window.showSaveFilePicker({ suggestedName: fileName, types: FILE_TYPES });
+        fileName = fileHandle.name;
+      }
+      if (fileHandle.requestPermission && (await fileHandle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+        if ((await fileHandle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Permission denied');
+      }
+      const w = await fileHandle.createWritable();
+      await w.write(json); await w.close();
+      dirty = false; updateTitle();
+      storageSet('archdiagram.autosave', JSON.stringify({ fileName, data: buildFileObject() }));
+      toast('Saved ' + fileName);
+    } catch (err) { if (err.name !== 'AbortError') toast('Could not save: ' + err.message, true); }
+  } else {
+    download(fileName, json, 'application/json');
+    dirty = false; updateTitle();
+  }
+}
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function newDiagram() {
+  const snap = snapshot();
+  if (editingId) cancelEdit();
+  doc = { blocks: [], links: [] };
+  settings = loadUserDefaults();
+  if (snap !== snapshot()) { undoStack.push(snap); redoStack = []; }
+  sel.clear(); fileHandle = null; fileName = 'untitled.json';
+  const r = svg.getBoundingClientRect();
+  view = { x: r.width / 2, y: r.height / 2, k: 1 };
+  markDirty(); dirty = false; updateTitle();
+  refreshInspector(); render();
+  toast('New diagram (Undo restores the previous one)');
+}
+function exportSvg() {
+  const saved = sel; sel = new Set();
+  const wasEditing = editingId;
+  if (wasEditing) commitEditor();
+  doRender();
+  const bb = contentBBox();
+  sel = saved;
+  if (!bb) { toast('Nothing to export'); render(); return; }
+  const pad = 24, x = bb.x - pad, y = bb.y - pad, w = bb.w + pad * 2, h = bb.h + pad * 2;
+  const ser = new XMLSerializer();
+  const css = `.bc{width:100%;height:100%;padding:6px 10px;display:flex;gap:8px;overflow:hidden;position:relative;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.25;word-break:break-word}.bc .bt{min-width:0}.bc .bi{flex:none;display:flex;align-items:center;justify-content:center;line-height:1}.bc .bi-corner{position:absolute;left:6px;top:6px}.bc p{margin:0}`;
+  const out = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f1(x)} ${f1(y)} ${f1(w)} ${f1(h)}" width="${Math.ceil(w)}" height="${Math.ceil(h)}"><style>${css}</style>` +
+    `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(w)}" height="${f1(h)}" fill="${esc(settings.canvas.background)}"/>` +
+    [linkLayer, blockLayer, connLayer].map(n => ser.serializeToString(n)).join('') + '</svg>';
+  download(fileName.replace(/\.json$/i, '') + '.svg', out, 'image/svg+xml');
+  render();
+}
+
+/* drag & drop a JSON file onto the window */
+window.addEventListener('dragover', e => { e.preventDefault(); });
+window.addEventListener('drop', async e => {
+  e.preventDefault();
+  const item = [...(e.dataTransfer.items || [])].find(i => i.kind === 'file');
+  if (!item) return;
+  let handle = null;
+  try { if (item.getAsFileSystemHandle) handle = await item.getAsFileSystemHandle(); } catch (err) { handle = null; }
+  const file = handle && handle.getFile ? await handle.getFile() : item.getAsFile();
+  if (!file) return;
+  try { loadFileObject(JSON.parse(await file.text()), file.name, handle && handle.kind === 'file' ? handle : null); toast('Opened ' + file.name); }
+  catch (err) { toast('Could not open: ' + err.message, true); }
+});
+
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = $('#toast');
+  t.textContent = msg; t.style.background = isErr ? '#b91c1c' : '#111827';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* =====================================================================
+   Toolbar & keyboard
+   ===================================================================== */
+const COMMANDS = {
+  new: newDiagram, open: openFile, save: () => saveFile(false), saveAs: () => saveFile(true), exportSvg,
+  addBlock: addBlockCenter, undo, redo, delete: deleteSelection,
+  zoomIn: () => zoomCenter(1.2), zoomOut: () => zoomCenter(1 / 1.2), fit: fitView,
+  settings: openSettings, help: openHelp
+};
+$('#toolbar').addEventListener('click', e => {
+  const b = e.target.closest('[data-cmd]');
+  if (b && COMMANDS[b.dataset.cmd]) COMMANDS[b.dataset.cmd]();
+});
+$('#zoomLabel').addEventListener('click', () => zoomCenter(1 / view.k));
+
+const isTyping = e => {
+  const t = e.target;
+  return t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+};
+window.addEventListener('keydown', e => {
+  if (e.key === 'Shift') svg.classList.add('shift');
+  const mod = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  if (mod && key === 's') { e.preventDefault(); if (editingId) commitEditor(); saveFile(e.shiftKey); return; }
+  if (mod && key === 'o') { e.preventDefault(); openFile(); return; }
+  if (isTyping(e) || document.querySelector('dialog[open]')) return;
+  if (e.key === ' ') { spaceDown = true; stage.classList.add('panning'); e.preventDefault(); return; }
+  if (mod && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && key === 'y') { e.preventDefault(); redo(); return; }
+  if (mod && key === 'c') { if (copySelection()) toast('Copied'); return; }
+  if (mod && key === 'x') { if (copySelection()) deleteSelection(); return; }
+  if (mod && key === 'v') { e.preventDefault(); pasteClipboard(); return; }
+  if (mod && key === 'd') { e.preventDefault(); duplicateSelection(); return; }
+  if (mod && key === 'a') { e.preventDefault(); sel = new Set([...doc.blocks.map(b => b.id), ...doc.links.map(l => l.id)]); refreshInspector(); render(); return; }
+  if (mod && key === '0') { e.preventDefault(); zoomCenter(1 / view.k); return; }
+  if (mod) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
+  if (e.key === 'Escape') { sel.clear(); refreshInspector(); render(); return; }
+  if (e.key === 'Enter' && sel.size === 1) { const b = selBlocks()[0]; if (b) { e.preventDefault(); startEdit(b); } return; }
+  const step = e.shiftKey ? settings.canvas.gridSize : 1;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); nudgeSelection(-step, 0); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); nudgeSelection(step, 0); return; }
+  if (e.key === 'ArrowUp') { e.preventDefault(); nudgeSelection(0, -step); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); nudgeSelection(0, step); return; }
+  if (e.key === '+' || e.key === '=') { zoomCenter(1.2); return; }
+  if (e.key === '-' || e.key === '_') { zoomCenter(1 / 1.2); return; }
+  if (key === 'f') { fitView(); return; }
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'Shift') svg.classList.remove('shift');
+  if (e.key === ' ') { spaceDown = false; stage.classList.remove('panning'); }
+});
+window.addEventListener('blur', () => { spaceDown = false; stage.classList.remove('panning'); svg.classList.remove('shift'); });
+window.addEventListener('resize', render);
+
+/* =====================================================================
+   Demo diagram & startup
+   ===================================================================== */
+function demoDiagram() {
+  const B = (id, x, y, title, props = {}) => newBlock(x, y, Object.assign({ id, title }, props));
+  const blocks = [
+    B('web', 40, 60, '<b>Web app</b><br><font size="2" color="#6b7280">React SPA</font>', { icon: 'browser' }),
+    B('mob', 40, 220, '<b>Mobile app</b><br><font size="2" color="#6b7280">iOS / Android</font>', { icon: 'mobile' }),
+    B('gw', 320, 140, '<b>API Gateway</b>', { icon: 'shield', fill: '#eef2ff', stroke: '#6366f1', badge: 'NEW', badgeColor: '#6366f1' }),
+    B('svcA', 600, 40, '<b>Orders</b><br><font size="2">service</font>', { icon: 'container' }),
+    B('svcB', 600, 240, '<b>Billing</b><br><font size="2">service</font>', { icon: 'container', highlight: true, badge: '!', badgeColor: '#e53e3e' }),
+    B('mq', 600, 420, '<b>Event bus</b>', { icon: 'queue', fill: '#fff7ed', stroke: '#ea580c', strokeStyle: 'dashed' }),
+    B('db', 900, 40, '<b>Orders DB</b><br><font size="2">PostgreSQL</font>', { icon: 'database', iconPos: 'top', h: 90, fill: '#ecfdf5', stroke: '#059669' }),
+    B('db2', 900, 240, '<b>Billing DB</b>', { icon: 'database', fill: '#ecfdf5', stroke: '#059669' })
+  ];
+  const L = (from, to, props = {}) => newLink({ block: from, side: 'auto' }, { block: to, side: 'auto' }, props);
+  const links = [
+    L('web', 'gw', { label: 'HTTPS' }),
+    L('mob', 'gw', { label: 'HTTPS' }),
+    L('gw', 'svcA', { endEnd: 'open', startConn: 'circle', connColor: '#6366f1' }),
+    L('gw', 'svcB', { endEnd: 'open', startConn: 'circle', connColor: '#6366f1' }),
+    L('svcA', 'db', { endEnd: 'arrow-wide', endConn: 'square', connColor: '#059669' }),
+    L('svcB', 'db2', { endEnd: 'arrow-wide', endConn: 'square', connColor: '#059669' }),
+    L('svcA', 'mq', { route: 'poly', style: 'dashed', color: '#ea580c', endEnd: 'triangle', label: 'events' }),
+    L('mq', 'svcB', { route: 'curve', style: 'dashed', color: '#ea580c', endEnd: 'circle-filled', startEnd: 'diamond' })
+  ];
+  return { blocks, links };
+}
+
+function init() {
+  $('#verLabel').textContent = 'v' + APP_INFO.version;
+  $('#ghLink').href = APP_INFO.github;
+  let restored = false;
+  try {
+    const saved = JSON.parse(storageGet('archdiagram.autosave') || 'null');
+    if (saved && saved.data) { loadFileObject(saved.data, saved.fileName, null); undoStack = []; restored = true; }
+  } catch (e) { restored = false; }
+  if (!restored) {
+    doc = demoDiagram();
+    bmap = new Map(doc.blocks.map(b => [b.id, b]));
+    requestAnimationFrame(fitView);
+  }
+  dirty = false; updateTitle();
+  refreshInspector(); render();
+}
+init();
+</script>
+</body>
+</html>
