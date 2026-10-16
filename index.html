@@ -27,8 +27,16 @@
   /* ---------- toolbar ---------- */
   #toolbar {
     display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--ui-border);
-    background: var(--ui-bg); flex-wrap: wrap; min-height: 46px; z-index: 5;
+    background: var(--ui-bg); flex-wrap: wrap; min-height: 46px; z-index: 20; position: relative;
   }
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; top: calc(100% + 4px); left: 0; min-width: 210px; background: var(--ui-bg); border: 1px solid var(--ui-border);
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 4px; display: flex; flex-direction: column; z-index: 30;
+  }
+  .menu button { border: 0; background: transparent; text-align: left; padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+  .menu button:hover { background: var(--ui-bg2); }
+  .menu button small { color: var(--ui-muted); }
   .brand { font-weight: 700; margin-right: 8px; white-space: nowrap; }
   .brand small { font-weight: 400; color: var(--ui-muted); margin-left: 4px; }
   .tgroup { display: flex; gap: 2px; padding: 0 6px; border-left: 1px solid var(--ui-border); align-items: center; }
@@ -228,7 +236,14 @@
     <button class="tbtn" data-cmd="open" title="Open JSON file (Ctrl/Cmd+O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="lbl">Open</span></button>
     <button class="tbtn" data-cmd="save" title="Save (Ctrl/Cmd+S)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg><span class="lbl">Save</span></button>
     <button class="tbtn" data-cmd="saveAs" title="Save as… (Ctrl/Cmd+Shift+S)"><span class="lbl">Save as…</span></button>
-    <button class="tbtn" data-cmd="exportSvg" title="Export as SVG image"><span class="lbl">Export SVG</span></button>
+    <div class="menu-wrap">
+      <button class="tbtn" data-cmd="exportMenu" title="Export the diagram as an image or PDF"><span class="lbl">Export</span> ▾</button>
+      <div class="menu" id="exportMenu" hidden>
+        <button data-cmd="exportPng">PNG image <small>high resolution</small></button>
+        <button data-cmd="exportPdf">PDF document <small>high resolution</small></button>
+        <button data-cmd="exportSvg">SVG image <small>vector</small></button>
+      </div>
+    </div>
   </div>
   <div class="tgroup">
     <button class="tbtn" data-cmd="addBlock" title="Add block (or double-click canvas)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg><span class="lbl">Block</span></button>
@@ -327,7 +342,7 @@ const APP_INFO = {
 const FORMAT_VERSION = 1;
 
 const DEFAULT_SETTINGS = {
-  canvas: { background: '#f6f7f9', gridColor: '#cfd5de', gridSize: 10, showGrid: true, snap: true },
+  canvas: { background: '#f6f7f9', gridColor: '#cfd5de', gridSize: 10, showGrid: true, snap: true, exportScale: 3 },
   routing: { clearance: 18, spacing: 8, cornerRadius: 10, bendPenalty: 40, curveTension: 0.45, straight: true, minBends: true },
   block: {
     w: 160, h: 72, fill: '#ffffff', stroke: '#4a5568', strokeWidth: 1.5, strokeStyle: 'solid', radius: 8,
@@ -2827,7 +2842,8 @@ const SETTINGS_SPEC = [
   ['Canvas', [
     ['canvas.background', 'Background', 'color'], ['canvas.gridColor', 'Grid color', 'color'],
     ['canvas.gridSize', 'Grid size', 'number', { min: 2, max: 200 }], ['canvas.showGrid', 'Show grid', 'checkbox'],
-    ['canvas.snap', 'Snap to grid (Alt bypasses)', 'checkbox']]],
+    ['canvas.snap', 'Snap to grid (Alt bypasses)', 'checkbox'],
+    ['canvas.exportScale', 'PNG / PDF resolution (×)', 'number', { min: 1, max: 8, step: 1 }]]],
   ['Link routing', [
     ['routing.clearance', 'Distance from blocks', 'number', { min: 2, max: 100 }],
     ['routing.spacing', 'Spacing between links', 'number', { min: 0, max: 50 }],
@@ -3040,22 +3056,100 @@ function newDiagram() {
   refreshInspector(); render();
   toast('New diagram (Undo restores the previous one)');
 }
-function exportSvg() {
+/* The diagram as a standalone SVG document (no selection, no grid) */
+function buildExportSvg() {
   const saved = sel; sel = new Set();
-  const wasEditing = editingId;
-  if (wasEditing) commitEditor();
+  if (editingId) commitEditor();
   doRender();
   const bb = contentBBox();
   sel = saved;
-  if (!bb) { toast('Nothing to export'); render(); return; }
+  if (!bb) { render(); return null; }
   const pad = 24, x = bb.x - pad, y = bb.y - pad, w = bb.w + pad * 2, h = bb.h + pad * 2;
   const ser = new XMLSerializer();
   const css = `.bc{width:100%;height:100%;padding:6px 10px;display:flex;gap:8px;overflow:hidden;position:relative;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.25;word-break:break-word}.bc .bt{min-width:0}.bc .bi{flex:none;display:flex;align-items:center;justify-content:center;line-height:1}.bc .bi-corner{position:absolute;left:6px;top:6px}.bc p{margin:0}`;
   const out = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f1(x)} ${f1(y)} ${f1(w)} ${f1(h)}" width="${Math.ceil(w)}" height="${Math.ceil(h)}"><style>${css}</style>` +
     `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(w)}" height="${f1(h)}" fill="${esc(settings.canvas.background)}"/>` +
     [frameLayer, linkLayer, blockLayer, connLayer, flowLayer].map(n => ser.serializeToString(n)).join('') + '</svg>';
-  download(fileName.replace(/\.json$/i, '') + '.svg', out, 'image/svg+xml');
   render();
+  return { svg: out, w: Math.ceil(w), h: Math.ceil(h) };
+}
+const exportName = ext => fileName.replace(/\.json$/i, '') + '.' + ext;
+function exportSvg() {
+  const r = buildExportSvg();
+  if (!r) { toast('Nothing to export'); return; }
+  download(exportName('svg'), r.svg, 'image/svg+xml');
+}
+/* Rasterize the SVG export at settings.canvas.exportScale, kept within the
+   browser's canvas limits (and a pixel budget for very large diagrams) */
+async function exportCanvas(maxPixels) {
+  const r = buildExportSvg();
+  if (!r) return null;
+  let k = clamp(num(settings.canvas.exportScale, 3), 1, 8);
+  k = Math.min(k, 16000 / r.w, 16000 / r.h, Math.sqrt(maxPixels / (r.w * r.h)));
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(r.svg);
+  await img.decode();
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(r.w * k)); cv.height = Math.max(1, Math.round(r.h * k));
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = settings.canvas.background;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  return { cv, w: r.w, h: r.h, k };
+}
+function downloadBlob(name, blob) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function exportPng() {
+  try {
+    const r = await exportCanvas(120e6);
+    if (!r) { toast('Nothing to export'); return; }
+    const blob = await new Promise(res => r.cv.toBlob(res, 'image/png'));
+    downloadBlob(exportName('png'), blob);
+    toast(`PNG exported: ${r.cv.width} × ${r.cv.height} px`);
+  } catch (err) { toast('PNG export failed: ' + err.message, true); }
+}
+/* A one-page PDF: the page has the diagram's size (1 px = 0.75 pt) and holds
+   the high-resolution raster as a lossless (Flate) RGB image */
+async function exportPdf() {
+  try {
+    const r = await exportCanvas(40e6);
+    if (!r) { toast('Nothing to export'); return; }
+    const { cv } = r, W = cv.width, H = cv.height;
+    const px = cv.getContext('2d').getImageData(0, 0, W, H).data;
+    const rgb = new Uint8Array(W * H * 3);
+    for (let i = 0, j = 0; i < px.length; i += 4, j += 3) { rgb[j] = px[i]; rgb[j + 1] = px[i + 1]; rgb[j + 2] = px[i + 2]; }
+    const img = new Uint8Array(await new Response(new Blob([rgb]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+    const pw = f1(r.w * 0.75), ph = f1(r.h * 0.75);
+    const pdfStr = v => '(' + String(v).replace(/[^\x20-\x7e]/g, '?').replace(/([\\()])/g, '\\$1') + ')';
+    const content = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+    const enc = new TextEncoder(), parts = [], offsets = [];
+    let len = 0;
+    const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+    const obj = (n, body, stream) => {
+      offsets[n] = len;
+      put(`${n} 0 obj\n${body}\n`);
+      if (stream) { put('stream\n'); put(stream); put('\nendstream\n'); }
+      put('endobj\n');
+    };
+    put('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
+    obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+    obj(4, `<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${img.length} >>`, img);
+    obj(5, `<< /Length ${content.length} >>`, enc.encode(content));
+    obj(6, `<< /Title ${pdfStr(exportName('').slice(0, -1))} /Creator ${pdfStr(APP_INFO.name + ' ' + APP_INFO.version)} /Producer ${pdfStr(APP_INFO.github)} >>`);
+    const xref = len;
+    let x = `xref\n0 7\n0000000000 65535 f \n`;
+    for (let n = 1; n <= 6; n++) x += String(offsets[n]).padStart(10, '0') + ' 00000 n \n';
+    put(x + `trailer\n<< /Size 7 /Root 1 0 R /Info 6 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    downloadBlob(exportName('pdf'), new Blob(parts, { type: 'application/pdf' }));
+    toast(`PDF exported: ${W} × ${H} px image`);
+  } catch (err) { toast('PDF export failed: ' + err.message, true); }
 }
 
 /* drag & drop a JSON file onto the window */
@@ -3085,15 +3179,18 @@ function toast(msg, isErr) {
    Toolbar & keyboard
    ===================================================================== */
 const COMMANDS = {
-  new: newDiagram, open: openFile, save: () => saveFile(false), saveAs: () => saveFile(true), exportSvg,
+  new: newDiagram, open: openFile, save: () => saveFile(false), saveAs: () => saveFile(true), exportSvg, exportPng, exportPdf,
+  exportMenu: () => { $('#exportMenu').hidden = !$('#exportMenu').hidden; },
   addBlock: addBlockCenter, addFrame, undo, redo, delete: deleteSelection,
   zoomIn: () => zoomCenter(1.2), zoomOut: () => zoomCenter(1 / 1.2), fit: fitView,
   settings: openSettings, help: openHelp
 };
 $('#toolbar').addEventListener('click', e => {
   const b = e.target.closest('[data-cmd]');
+  if (b && b.dataset.cmd !== 'exportMenu') $('#exportMenu').hidden = true;
   if (b && COMMANDS[b.dataset.cmd]) COMMANDS[b.dataset.cmd]();
 });
+document.addEventListener('pointerdown', e => { if (!e.target.closest('.menu-wrap')) $('#exportMenu').hidden = true; });
 $('#zoomLabel').addEventListener('click', () => zoomCenter(1 / view.k));
 
 const isTyping = e => {

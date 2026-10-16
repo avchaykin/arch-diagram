@@ -27,7 +27,8 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
   - Hovering a flow in the list previews its step numbers on the canvas. When a flow is open, its numbers stay visible. Click a number to jump to that step.
 - **Settings**: canvas, grid and snap, routing parameters, and default styles for new blocks and links. You can save them as your personal defaults.
 - **Files**: the diagram is stored as JSON. In Chrome the File System Access API reads and writes the local file in place; other browsers fall back to upload/download. Work is also auto-saved in browser storage, and you can drop a `.json` file onto the window to open it.
-- **Other**: undo/redo, copy/paste/duplicate, box selection, zoom/pan, export to SVG.
+- **Export**: the Export menu saves the diagram as PNG or PDF in high resolution (3× by default, adjustable in Settings), or as a vector SVG. The PDF page matches the diagram's size and holds a lossless image. Selection and grid are left out; the open flow's step numbers are included.
+- **Other**: undo/redo, copy/paste/duplicate, box selection, zoom/pan.
 
 ## JSON format
 
