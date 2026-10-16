@@ -125,6 +125,25 @@
   .btn:hover { background: var(--ui-bg2); }
   .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn.danger { color: var(--danger); }
+  .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--ui-bg2); border-radius: 8px; justify-self: start; }
+  .seg button {
+    border: 0; background: transparent; border-radius: 6px; height: 26px; min-width: 30px; padding: 0 5px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; color: #4b5563;
+  }
+  .seg button:hover { background: rgba(255,255,255,.7); color: var(--ui-text); }
+  .seg button.on { background: var(--ui-bg); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.04); }
+  .seg.grid { display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; }
+  .seg.grid button { min-width: 0; padding: 0; }
+  .row.stack { grid-template-columns: 1fr; gap: 3px; }
+  .conn-item { border: 1px solid var(--ui-border); border-radius: 8px; padding: 6px 8px; margin: 5px 0; }
+  .conn-item:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .conn-head { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 12px; }
+  .conn-dir { color: var(--accent); font-weight: 700; }
+  .conn-other { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conn-head select { border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg); padding: 1px 4px; font-size: 12px; max-width: 110px; }
+  .conn-ctl { display: flex; align-items: center; gap: 8px; }
+  .conn-ctl input[type=text] { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg); }
+  .conn-ctl .chk { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--ui-muted); cursor: pointer; }
   .icon-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin: 4px 0 6px; }
   .icon-grid button {
     border: 1px solid var(--ui-border); background: var(--ui-bg); border-radius: 5px; height: 30px; cursor: pointer; padding: 0;
@@ -149,6 +168,9 @@
   #settingsBody .row input[type=number], #settingsBody .row select { width: 118px; }
   #settingsBody .row input[type=checkbox] { justify-self: end; }
   #settingsBody .color { justify-self: end; flex-direction: row-reverse; }
+  #settingsBody .seg { justify-self: end; }
+  #settingsBody .row.stack { grid-template-columns: 1fr; }
+  #settingsBody .row.stack .seg { justify-self: stretch; }
   @media (max-width: 1000px) { #settingsBody { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .dlg-foot { display: flex; gap: 6px; padding: 10px 16px; border-top: 1px solid var(--ui-border); justify-content: flex-end; flex-wrap: wrap; }
   .dlg-body h4 { margin: 14px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ui-muted); }
@@ -455,6 +477,7 @@ let bmap = new Map();
 let lastGeo = new Map();
 let clipboard = null;
 let inspSnap = null;
+let hoverConn = null;
 
 const svg = $('#svg'), stage = $('#stage'), viewport = $('#viewport');
 const gridLayer = $('#gridLayer'), linkLayer = $('#linkLayer'), blockLayer = $('#blockLayer');
@@ -513,13 +536,16 @@ function normBlock(o) {
 }
 function normEnd(e) {
   e = e || {};
+  let out;
   if (e.block) {
-    const out = { block: String(e.block), side: oneOf(e.side, optVals(OPTS.side), 'auto') };
+    out = { block: String(e.block), side: oneOf(e.side, optVals(OPTS.side), 'auto') };
     if (out.side !== 'auto') out.t = clamp(num(e.t, 0.5), 0, 1);
-    return out;
-  }
-  return { x: num(e.x, 0), y: num(e.y, 0) };
+  } else out = { x: num(e.x, 0), y: num(e.y, 0) };
+  if (e.name) { out.name = String(e.name).slice(0, 80); out.showName = e.showName !== false; }
+  return out;
 }
+/* connector name travels with the end when it is re-attached */
+const keepName = (prev, next) => (prev && prev.name ? Object.assign(next, { name: prev.name, showName: prev.showName !== false }) : next);
 function normLink(o) {
   const l = newLink(normEnd(o.from), normEnd(o.to));
   const D = settings.link;
@@ -1102,8 +1128,19 @@ function connectorsSvg(l, ends) {
   for (const which of ['from', 'to']) {
     const e = ends[which];
     const conn = which === 'from' ? l.startConn : l.endConn;
-    if (!e.block || conn === 'none') continue;
+    if (!e.block) continue;
     const r = l.connSize / 2;
+    const name = l[which].name;
+    if (name && l[which].showName !== false) {
+      // beside the port, outside the block, clear of the link line
+      const o = (conn === 'none' ? 0 : r) + 4;
+      const pos = {
+        right: [e.x + o, e.y - 5, 'start'], left: [e.x - o, e.y - 5, 'end'],
+        top: [e.x + o, e.y - o, 'start'], bottom: [e.x + o, e.y + o + 9, 'start']
+      }[e.side];
+      s += `<text class="conn-name" x="${f1(pos[0])}" y="${f1(pos[1])}" text-anchor="${pos[2]}" font-size="11" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" fill="${esc(l.labelColor)}" stroke="${esc(settings.canvas.background)}" stroke-width="3" stroke-linejoin="round" paint-order="stroke" pointer-events="none">${esc(name)}</text>`;
+    }
+    if (conn === 'none') continue;
     const attrs = `class="conn" data-link="${esc(l.id)}" data-end="${which}" fill="${esc(l.connColor)}" stroke="${esc(settings.canvas.background)}" stroke-width="1"`;
     if (conn === 'circle') s += `<circle cx="${f1(e.x)}" cy="${f1(e.y)}" r="${r}" ${attrs}/>`;
     else s += `<rect x="${f1(e.x - r)}" y="${f1(e.y - r)}" width="${r * 2}" height="${r * 2}" ${attrs}/>`;
@@ -1127,6 +1164,10 @@ function gridSvg() {
 function overlaySvg(ends) {
   const k = view.k;
   let s = '';
+  if (hoverConn && ends.has(hoverConn.l)) {
+    const p = ends.get(hoverConn.l)[hoverConn.w];
+    s += `<circle cx="${f1(p.x)}" cy="${f1(p.y)}" r="${9 / k}" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="${1.5 / k}" pointer-events="none"/>`;
+  }
   for (const b of selBlocks()) {
     s += `<rect x="${b.x - 3 / k}" y="${b.y - 3 / k}" width="${b.w + 6 / k}" height="${b.h + 6 / k}" fill="none" stroke="#2563eb" stroke-width="${1.2 / k}" stroke-dasharray="${4 / k} ${3 / k}" pointer-events="none"/>`;
     if (sel.size === 1) {
@@ -1319,7 +1360,7 @@ window.addEventListener('pointermove', e => {
       drag.moved = true;
       const b = blockAt(p, 6 / view.k);
       drag.hover = b;
-      drag.l[drag.which] = b ? attachTarget(b, p) : { x: snapV(p.x, e), y: snapV(p.y, e) };
+      drag.l[drag.which] = keepName(drag.l[drag.which], b ? attachTarget(b, p) : { x: snapV(p.x, e), y: snapV(p.y, e) });
       render(); break;
     }
     case 'newLink':
@@ -1605,8 +1646,48 @@ edBar.querySelector('input[type=color]').addEventListener('change', () => restor
 /* =====================================================================
    Inspector
    ===================================================================== */
+/* small SVG pictograms for icon-button controls */
+const svgIcon = (inner, w = 16, h = 16) => `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+const ICON_SETS = {
+  align: OPTS.align.map(([v, lbl]) => [v, lbl, svgIcon({
+    left: 'M2 3h12M2 6.5h8M2 10h12M2 13.5h7', center: 'M2 3h12M4 6.5h8M2 10h12M4.5 13.5h7', right: 'M2 3h12M6 6.5h8M2 10h12M7 13.5h7'
+  }[v].replace(/^/, '<path d="') + '"/>')]),
+  valign: OPTS.valign.map(([v, lbl]) => [v, lbl, svgIcon({
+    top: '<path d="M2 2.5h12"/><rect x="5" y="5" width="6" height="5" rx="1"/>',
+    middle: '<path d="M2 8h3M11 8h3"/><rect x="5" y="5" width="6" height="6" rx="1"/>',
+    bottom: '<path d="M2 13.5h12"/><rect x="5" y="6" width="6" height="5" rx="1"/>'
+  }[v])]),
+  iconPos: OPTS.iconPos.map(([v, lbl]) => [v, lbl, svgIcon({
+    left: '<rect x="1.5" y="5" width="5" height="5" rx="1"/><path d="M9 6h5.5M9 9h4"/>',
+    top: '<rect x="5.5" y="1.5" width="5" height="5" rx="1"/><path d="M3.5 10h9M5 13h6"/>',
+    right: '<rect x="9.5" y="5" width="5" height="5" rx="1"/><path d="M1.5 6H7M1.5 9h4"/>',
+    corner: '<rect x="1" y="1" width="14" height="14" rx="2" opacity=".45"/><rect x="2.5" y="2.5" width="4" height="4" rx=".8"/><path d="M6 10h5"/>'
+  }[v])]),
+  end: dir => OPTS.ends.map(([v, lbl]) => [v, lbl, markerIcon(v, dir)]),
+  conn: dir => OPTS.conn.map(([v, lbl]) => [v, lbl, connIcon(v, dir)])
+};
+function markerIcon(type, dir) {
+  const m = MARKERS[type];
+  const tipX = 33;
+  const lineEnd = m ? tipX - m.inset * 0.85 : tipX;
+  const fill = !m ? '' : m.fill === 'solid' ? 'currentColor' : m.fill === 'bg' ? 'var(--ui-bg)' : 'none';
+  const mk = m ? `<path d="${m.d}" transform="translate(${tipX},8) scale(.85)" fill="${fill}" stroke-width="${m.fill === 'solid' ? 1 : 1.6}"/>` : '';
+  const flip = dir === 'start' ? ' transform="translate(36,0) scale(-1,1)"' : '';
+  return `<svg viewBox="0 0 36 16" width="36" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><g${flip}><path d="M3 8H${f1(lineEnd)}"/>${mk}</g></svg>`;
+}
+function connIcon(type, dir) {
+  const shape = type === 'circle' ? '<circle cx="26" cy="8" r="3.5" fill="currentColor" stroke="none"/>'
+    : type === 'square' ? '<rect x="22.5" y="4.5" width="7" height="7" fill="currentColor" stroke="none"/>' : '';
+  const flip = dir === 'start' ? ' transform="translate(36,0) scale(-1,1)"' : '';
+  return `<svg viewBox="0 0 36 16" width="36" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><g${flip}><path d="M4 8h22"/><path d="M26 1.5v13" stroke-width="2" opacity=".45"/>${shape}</g></svg>`;
+}
+
 function ctl(t, k, type, value, extra = {}) {
   const a = `data-t="${t}" data-k="${k}"`;
+  if (type === 'icons') {
+    return `<div class="seg${extra.grid ? ' grid' : ''}" ${a}>${extra.options.map(([v, lbl, icon]) =>
+      `<button type="button" data-v="${esc(v)}" title="${esc(lbl)}" class="${v === value ? 'on' : ''}">${icon}</button>`).join('')}</div>`;
+  }
   if (type === 'select') {
     return `<select ${a}>${extra.options.map(([v, lbl]) => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(lbl)}</option>`).join('')}</select>`;
   }
@@ -1616,6 +1697,9 @@ function ctl(t, k, type, value, extra = {}) {
   return `<input type="text" ${a} value="${esc(value)}"${extra.placeholder ? ` placeholder="${esc(extra.placeholder)}"` : ''}>`;
 }
 const row = (label, html) => `<label class="row"><span>${label}</span>${html}</label>`;
+/* rows holding buttons must not be <label>s (a label click would press its first button) */
+const irow = (label, html, stack) => `<div class="row${stack ? ' stack' : ''}"><span>${label}</span>${html}</div>`;
+const iconCtl = (t, k, set, value, grid) => ctl(t, k, 'icons', value, { options: set, grid });
 function toHex(c) {
   if (/^#[0-9a-f]{6}$/i.test(c)) return c;
   if (/^#[0-9a-f]{3}$/i.test(c)) return '#' + c.slice(1).split('').map(x => x + x).join('');
@@ -1660,14 +1744,15 @@ function refreshInspector() {
     h += `<h3>Text</h3>`;
     h += row('Text color', ctl(T, 'textColor', 'color', b.textColor));
     h += row('Font size', ctl(T, 'fontSize', 'number', b.fontSize, { min: 6 }));
-    h += row('Align', ctl(T, 'align', 'select', b.align, { options: OPTS.align }));
-    h += row('Vertical', ctl(T, 'valign', 'select', b.valign, { options: OPTS.valign }));
+    h += irow('Align', iconCtl(T, 'align', ICON_SETS.align, b.align));
+    h += irow('Vertical', iconCtl(T, 'valign', ICON_SETS.valign, b.valign));
     h += `<h3>Icon</h3><div class="icon-grid"><button data-act="icon" data-icon="" class="${!b.icon ? 'on' : ''}" title="No icon">∅</button>` +
       Object.keys(ICONS).map(n => `<button data-act="icon" data-icon="${n}" title="${n}" class="${b.icon === n ? 'on' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg></button>`).join('') + `</div>`;
     h += row('Emoji / text', ctl(T, 'icon', 'text', ICONS[b.icon] ? '' : b.icon, { placeholder: 'e.g. 🚀 or λ' }));
     h += row('Icon color', ctl(T, 'iconColor', 'color', b.iconColor));
     h += row('Icon size', ctl(T, 'iconSize', 'number', b.iconSize, { min: 8 }));
-    h += row('Position', ctl(T, 'iconPos', 'select', b.iconPos, { options: OPTS.iconPos }));
+    h += irow('Position', iconCtl(T, 'iconPos', ICON_SETS.iconPos, b.iconPos));
+    if (blocks.length === 1) h += connectorsSection(b);
     h += `<h3>Badge / highlight</h3>`;
     h += row('Badge text', ctl(T, 'badge', 'text', b.badge, { placeholder: 'e.g. NEW, v2, !' }));
     h += row('Badge color', ctl(T, 'badgeColor', 'color', b.badgeColor));
@@ -1687,11 +1772,11 @@ function refreshInspector() {
     h += row('Line style', ctl(T, 'style', 'select', l.style, { options: OPTS.lineStyle }));
     h += row('Label color', ctl(T, 'labelColor', 'color', l.labelColor));
     h += `<h3>Ends</h3>`;
-    h += row('Start end', ctl(T, 'startEnd', 'select', l.startEnd, { options: OPTS.ends }));
-    h += row('Finish end', ctl(T, 'endEnd', 'select', l.endEnd, { options: OPTS.ends }));
+    h += irow('Start', iconCtl(T, 'startEnd', ICON_SETS.end('start'), l.startEnd, true), true);
+    h += irow('Finish', iconCtl(T, 'endEnd', ICON_SETS.end('finish'), l.endEnd, true), true);
     h += `<h3>Connectors</h3>`;
-    h += row('Start', ctl(T, 'startConn', 'select', l.startConn, { options: OPTS.conn }));
-    h += row('Finish', ctl(T, 'endConn', 'select', l.endConn, { options: OPTS.conn }));
+    h += irow('Start', iconCtl(T, 'startConn', ICON_SETS.conn('start'), l.startConn));
+    h += irow('Finish', iconCtl(T, 'endConn', ICON_SETS.conn('finish'), l.endConn));
     h += row('Color', ctl(T, 'connColor', 'color', l.connColor));
     h += row('Size', ctl(T, 'connSize', 'number', l.connSize, { min: 2 }));
     if (links.length === 1) {
@@ -1706,12 +1791,54 @@ function refreshInspector() {
   inspector.innerHTML = h;
 }
 
+function connectorsSection(b) {
+  const ends = computeEnds();
+  const items = [];
+  for (const l of doc.links) {
+    for (const w of ['from', 'to']) {
+      if (l[w].block !== b.id) continue;
+      const e = ends.get(l.id)[w];
+      const o = l[w === 'from' ? 'to' : 'from'];
+      const ob = o.block && bmap.get(o.block);
+      const other = ob ? (o.block === b.id ? 'itself' : htmlToText(ob.title) || 'untitled block') : 'free end';
+      items.push({ l, w, side: e.side, t: e.t, other });
+    }
+  }
+  const SO = { top: 0, right: 1, bottom: 2, left: 3 };
+  items.sort((p, q) => SO[p.side] - SO[q.side] || p.t - q.t);
+  let h = `<h3>Connectors <span style="text-transform:none;letter-spacing:0;font-weight:400">(${items.length})</span></h3>`;
+  if (!items.length) return h + `<div class="muted" style="font-size:12px">No links yet. Shift + drag from the block to add one.</div>`;
+  for (const it of items) {
+    const end = it.l[it.w];
+    const a = `data-t="conn" data-l="${esc(it.l.id)}" data-w="${it.w}"`;
+    h += `<div class="conn-item" data-l="${esc(it.l.id)}" data-w="${it.w}">
+      <div class="conn-head"><span class="conn-dir" title="${it.w === 'from' ? 'outgoing' : 'incoming'}">${it.w === 'from' ? '→' : '←'}</span>
+        <span class="conn-other">${esc(it.other)}</span>
+        <select ${a} data-k="side" title="Side">${OPTS.side.map(([v, lbl]) => `<option value="${v}"${(end.side || 'auto') === v ? ' selected' : ''}>${v === 'auto' ? 'Auto (' + it.side + ')' : lbl}</option>`).join('')}</select></div>
+      <div class="conn-ctl"><input type="text" ${a} data-k="name" value="${esc(end.name || '')}" placeholder="Connector name">
+        <label class="chk" title="Show the name next to the connector"><input type="checkbox" ${a} data-k="showName"${end.showName !== false ? ' checked' : ''}> show</label></div>
+    </div>`;
+  }
+  return h;
+}
+
 function applyField(el) {
-  const t = el.dataset.t, k = el.dataset.k;
   let v;
   if (el.type === 'checkbox') v = el.checked;
   else if (el.type === 'number') { v = parseFloat(el.value); if (!isFinite(v)) return false; }
   else v = el.value;
+  if (el.dataset.t === 'conn') {
+    const l = linkById(el.dataset.l), end = l && l[el.dataset.w];
+    if (!end) return false;
+    const k = el.dataset.k;
+    if (k === 'side') { end.side = v; if (v === 'auto') delete end.t; else if (end.t == null) end.t = 0.5; }
+    else if (k === 'name') { end.name = v; if (end.showName == null) end.showName = true; if (!v) { delete end.name; delete end.showName; } }
+    else if (k === 'showName') end.showName = v;
+    return true;
+  }
+  return applyValue(el.dataset.t, el.dataset.k, v);
+}
+function applyValue(t, k, v) {
   const targets = t === 'block' ? selBlocks() : selLinks();
   for (const o of targets) {
     if (k.includes('.')) {
@@ -1732,6 +1859,12 @@ document.addEventListener('input', e => {
   const el = e.target;
   if (el.type === 'color' && el.parentElement && el.parentElement.classList.contains('color')) el.nextElementSibling.textContent = el.value;
 });
+inspector.addEventListener('mouseover', e => {
+  const it = e.target.closest('.conn-item');
+  const next = it ? { l: it.dataset.l, w: it.dataset.w } : null;
+  if (JSON.stringify(next) !== JSON.stringify(hoverConn)) { hoverConn = next; render(); }
+});
+inspector.addEventListener('mouseleave', () => { if (hoverConn) { hoverConn = null; render(); } });
 inspector.addEventListener('input', e => {
   const el = e.target;
   if (!el.dataset || !el.dataset.k) return;
@@ -1749,6 +1882,13 @@ inspector.addEventListener('change', e => {
   if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.dataset.k === 'icon') refreshInspector();
 });
 inspector.addEventListener('click', e => {
+  const segBtn = e.target.closest('.seg button');
+  if (segBtn) {
+    const seg = segBtn.parentElement, snap = snapshot();
+    applyValue(seg.dataset.t, seg.dataset.k, segBtn.dataset.v);
+    pushUndo(snap); render(); refreshInspector();
+    return;
+  }
   const btn = e.target.closest('[data-act]');
   if (!btn) return;
   const act = btn.dataset.act;
@@ -1800,14 +1940,16 @@ const SETTINGS_SPEC = [
     ['block.badgeColor', 'Badge color', 'color'], ['block.badgeTextColor', 'Badge text color', 'color']]],
   ['New blocks: text & icon', [
     ['block.textColor', 'Text color', 'color'],
-    ['block.fontSize', 'Font size', 'number', { min: 6 }], ['block.align', 'Text align', 'select', { options: OPTS.align }],
-    ['block.valign', 'Vertical align', 'select', { options: OPTS.valign }], ['block.iconColor', 'Icon color', 'color'],
-    ['block.iconSize', 'Icon size', 'number', { min: 8 }], ['block.iconPos', 'Icon position', 'select', { options: OPTS.iconPos }]]],
+    ['block.fontSize', 'Font size', 'number', { min: 6 }], ['block.align', 'Text align', 'icons', { options: ICON_SETS.align }],
+    ['block.valign', 'Vertical align', 'icons', { options: ICON_SETS.valign }], ['block.iconColor', 'Icon color', 'color'],
+    ['block.iconSize', 'Icon size', 'number', { min: 8 }], ['block.iconPos', 'Icon position', 'icons', { options: ICON_SETS.iconPos }]]],
   ['New links', [
     ['link.route', 'Routing', 'select', { options: OPTS.route }], ['link.color', 'Color', 'color'],
     ['link.width', 'Width', 'number', { min: 0.5, step: 0.5 }], ['link.style', 'Line style', 'select', { options: OPTS.lineStyle }],
-    ['link.startEnd', 'Start end', 'select', { options: OPTS.ends }], ['link.endEnd', 'Finish end', 'select', { options: OPTS.ends }],
-    ['link.startConn', 'Start connector', 'select', { options: OPTS.conn }], ['link.endConn', 'Finish connector', 'select', { options: OPTS.conn }],
+    ['link.startEnd', 'Start end', 'icons', { options: ICON_SETS.end('start'), grid: true, stack: true }],
+    ['link.endEnd', 'Finish end', 'icons', { options: ICON_SETS.end('finish'), grid: true, stack: true }],
+    ['link.startConn', 'Start connector', 'icons', { options: ICON_SETS.conn('start') }],
+    ['link.endConn', 'Finish connector', 'icons', { options: ICON_SETS.conn('finish') }],
     ['link.connColor', 'Connector color', 'color'], ['link.connSize', 'Connector size', 'number', { min: 2 }],
     ['link.labelColor', 'Label color', 'color']]]
 ];
@@ -1816,7 +1958,10 @@ const setPath = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); k
 function openSettings() {
   // columns: [canvas + routing] [blocks] [block text & icon] [links]
   const section = ([title, fields]) => `<h4>${title}</h4>` +
-    fields.map(([path, label, type, extra]) => row(label, ctl('settings', path, type, getPath(settings, path), extra || {}))).join('');
+    fields.map(([path, label, type, extra = {}]) => {
+      const c = ctl('settings', path, type, getPath(settings, path), extra);
+      return type === 'icons' ? irow(label, c, extra.stack) : row(label, c);
+    }).join('');
   const [canvas, routing, ...rest] = SETTINGS_SPEC;
   const h = [[canvas, routing], ...rest.map(sec => [sec])].map(col => `<div>${col.map(section).join('')}</div>`).join('');
   $('#settingsBody').innerHTML = h;
@@ -1835,6 +1980,14 @@ function onSettingsInput(e) {
 $('#settingsBody').addEventListener('input', onSettingsInput);
 $('#settingsBody').addEventListener('change', onSettingsInput);
 $('#settingsDlg').addEventListener('click', e => {
+  const segBtn = e.target.closest('.seg button');
+  if (segBtn) {
+    const seg = segBtn.parentElement;
+    setPath(settings, seg.dataset.k, segBtn.dataset.v);
+    for (const b of seg.children) b.classList.toggle('on', b === segBtn);
+    markDirty(); render();
+    return;
+  }
   const a = e.target.closest('[data-sact]');
   if (!a) return;
   if (a.dataset.sact === 'reset') { settings = clone(DEFAULT_SETTINGS); markDirty(); render(); openSettings(); toast('Settings reset to factory values'); }

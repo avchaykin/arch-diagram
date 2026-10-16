@@ -8,6 +8,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
 - **Blocks**: size, fill, border style/color/width, corner radius, a rich-text title (bold, italic, colors, sizes, line breaks), an icon (built-in set or any emoji/text), and a badge plus an optional highlight ring.
 - **Links**: **Shift + drag** from a block to another block, or onto empty canvas to leave a free end.
 - **Connectors**: placed on a block side automatically and spread evenly when several share a side. Drag a link end to another side, another block, or free space. Drop near a block's center to make the side automatic again. A connector can be simple, a circle or a square, in any color.
+  When you select a block, the sidebar lists all its connectors. Each one shows the block at the other end, lets you change its side, and can be given a name. A "show" toggle turns the name on or off next to the connector.
 - **Link ends**: none, full arrows (normal/narrow/wide), lined arrows (normal/narrow/wide), triangle, circle, square and diamond, in hollow or filled versions.
 - **Routing**: curve, straight line or orthogonal polyline.
   - Polylines are routed with A* around blocks and keep a set clearance.
@@ -32,6 +33,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
 ```
 
 A link end is either attached, `{ "block": id, "side": "auto" | "top" | "right" | "bottom" | "left", "t": 0..1 }`, or free, `{ "x", "y" }`.
+Any end can also carry a connector name: `"name": "REST /orders", "showName": true`.
 
 ## Shortcuts
 
