@@ -14,6 +14,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
   - Polylines are routed with A* around blocks and keep a set clearance.
   - Polylines avoid overlapping each other. Parallel segments are spread apart by a set spacing.
   - Polyline corners are rounded with a set radius.
+  - **Minimize bends**: a polyline with two or more bends becomes a single L-shaped bend when other sides or spots for its connectors allow it. As with straight links, this happens only if no block is in the way and no crossings are added. Sides you set by hand and manually shaped routes are kept. You can switch it per link, set the default for new links, or turn it off for all links in Settings.
   - You can drag any polyline segment to move it. Near the line of the neighbouring segments it snaps into line with them, which removes the step. The route then becomes manual: its bends stay where you put them and follow the ports when blocks move. Double-clicking a segment, or "Reset route" in the sidebar, brings back automatic routing.
 - **Flows**: named sequences of numbered steps over blocks and links, such as a request path or a user scenario. They are managed in the **Flows** tab of the sidebar.
   - You can start with an empty flow, record one by clicking elements on the canvas in order, or build one from the current selection.
