@@ -1130,6 +1130,28 @@ function findStraight(ends, geo) {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(pl);
   }
+  // Simulate the side after placing: anchored spots stay, the others are
+  // spread evenly in the gaps between them (as computeEnds does). Reject when
+  // that packs connectors noticeably tighter than an even spread would.
+  const sideOk = (end, cs, ids) => {
+    const b = end.e.block;
+    if (!b) return true;
+    const ax = along(end.side), s0 = ax === 'x' ? b.x : b.y, s1 = s0 + (ax === 'x' ? b.w : b.h);
+    const list = (spots.get(end.key) || []).filter(sp => !ids.has(sp.id));
+    const anchors = list.filter(sp => sp.anchor).map(sp => sp.c).concat(cs).sort((u, v) => u - v);
+    const others = list.filter(sp => !sp.anchor).map(sp => sp.o).sort((u, v) => u - v);
+    const bounds = [s0, ...anchors, s1], pos = [...anchors];
+    let k = 0;
+    for (let g = 0; g < bounds.length - 1; g++) {
+      const run = [];
+      while (k < others.length && (g === bounds.length - 2 || others[k] < bounds[g + 1])) run.push(others[k++]);
+      run.forEach((_, j) => pos.push(bounds[g] + (bounds[g + 1] - bounds[g]) * (j + 1) / (run.length + 1)));
+    }
+    pos.sort((u, v) => u - v);
+    const need = Math.min(minGap, (s1 - s0) / (pos.length + 1)) * 0.9;
+    for (let i = 1; i < pos.length; i++) if (pos[i] - pos[i - 1] < need) return false;
+    return true;
+  };
   // `skip`: links whose current routes are ignored when counting crossings
   // (the rest of the group; they get re-spread and re-routed anyway)
   const tryPlace = (members, coords, skip) => {
@@ -1139,31 +1161,9 @@ function findStraight(ends, geo) {
       if (c == null || c < pl.lo - EPS || c > pl.hi + EPS) return false;
       if (i && c - coords[i - 1] < minGap - EPS) return false;
     }
-    // Simulate the side after placing: anchored spots stay, the others are
-    // spread evenly in the gaps between them (as computeEnds does). Reject when
-    // that packs connectors noticeably tighter than an even spread would.
-    const sideOk = (end, cs) => {
-      const b = end.e.block;
-      if (!b) return true;
-      const ax = along(end.side), s0 = ax === 'x' ? b.x : b.y, s1 = s0 + (ax === 'x' ? b.w : b.h);
-      const list = (spots.get(end.key) || []).filter(sp => !ids.has(sp.id));
-      const anchors = list.filter(sp => sp.anchor).map(sp => sp.c).concat(cs).sort((u, v) => u - v);
-      const others = list.filter(sp => !sp.anchor).map(sp => sp.o).sort((u, v) => u - v);
-      const bounds = [s0, ...anchors, s1], pos = [...anchors];
-      let k = 0;
-      for (let g = 0; g < bounds.length - 1; g++) {
-        const run = [];
-        while (k < others.length && (g === bounds.length - 2 || others[k] < bounds[g + 1])) run.push(others[k++]);
-        run.forEach((_, j) => pos.push(bounds[g] + (bounds[g + 1] - bounds[g]) * (j + 1) / (run.length + 1)));
-      }
-      pos.sort((u, v) => u - v);
-      const need = Math.min(minGap, (s1 - s0) / (pos.length + 1)) * 0.9;
-      for (let i = 1; i < pos.length; i++) if (pos[i] - pos[i - 1] < need) return false;
-      return true;
-    };
     const byKey = new Map();
     members.forEach((pl, i) => { for (const end of [pl.p, pl.q]) { if (!byKey.has(end.key)) byKey.set(end.key, { end, cs: [] }); byKey.get(end.key).cs.push(coords[i]); } });
-    for (const { end, cs } of byKey.values()) if (!sideOk(end, cs)) return false;
+    for (const { end, cs } of byKey.values()) if (!sideOk(end, cs, ids)) return false;
     const segs = [];
     let now = 0, before = 0;
     for (let i = 0; i < n; i++) {
@@ -1214,6 +1214,49 @@ function findStraight(ends, geo) {
     for (const m of [...members].sort((u, v) => Math.abs(members.indexOf(u) - mid) - Math.abs(members.indexOf(v) - mid))) {
       if (options([m]).some(o => tryPlace([m], o.map(v => v == null ? null : r2(v)), rest))) rest.delete(m.l.id);
     }
+  }
+
+  // A polyline that already runs towards a block side but ends with a small
+  // jog onto its spread slot: move the connector onto the line instead.
+  for (const l of doc.links) {
+    if (l.route !== 'poly' || hasWaypoints(l) || l.straight === false || out.has(l.id)) continue;
+    const r = ends.get(l.id), entry = {};
+    let pts = (lines.get(l.id) || []).map(q => ({ x: q.x, y: q.y }));
+    for (const which of ['from', 'to']) {
+      const e = r[which];
+      if (!e.block || pts.length < 4) continue;
+      if (l.from.block && l.from.block === l.to.block) continue;
+      // E: port, S: end of the stub, Q: corner before the jog, P: start of the run towards the block
+      const n = pts.length, at = which === 'to' ? i => pts[n - 1 - i] : i => pts[i];
+      const E = at(0), S = at(1), Q = at(2), P = at(3);
+      const ax = along(e.side), nrm = ax === 'y' ? 'x' : 'y'; // ax: along the side; nrm: travel direction
+      const run = Math.abs(P[ax] - Q[ax]) < EPS && Math.abs(P[nrm] - Q[nrm]) > EPS;
+      const jog = Math.abs(Q[nrm] - S[nrm]) < EPS && Math.abs(Q[ax] - S[ax]) > EPS;
+      if (!run || !jog) continue;
+      // the run must head into the side from outside the block
+      const dir = Math.sign(Q[nrm] - P[nrm]), inward = -(ax === 'y' ? e.nx : e.ny);
+      if (dir !== inward) continue;
+      const b = e.block, s0 = b[ax] + M, s1 = b[ax] + (ax === 'x' ? b.w : b.h) - M, c = r2(Q[ax]);
+      if (c < s0 - EPS || c > s1 + EPS) continue;
+      const end = { e, side: e.side, key: sideKey(b, e.side) };
+      const ids = new Set([l.id]);
+      if (!sideOk(end, [c], ids)) continue;
+      const E2 = { x: ax === 'x' ? c : E.x, y: ax === 'y' ? c : E.y };
+      // nothing may sit between the corner and the side
+      const x1 = Math.min(Q.x, E2.x), x2 = Math.max(Q.x, E2.x), y1 = Math.min(Q.y, E2.y), y2 = Math.max(Q.y, E2.y);
+      if (doc.blocks.some(bk => bk !== b && x2 > bk.x - 1 && x1 < bk.x + bk.w + 1 && y2 > bk.y - 1 && y1 < bk.y + bk.h + 1)) continue;
+      const next = which === 'to' ? [...pts.slice(0, n - 3), E2] : [E2, ...pts.slice(3)];
+      let now = 0, before = 0;
+      for (const [id, q] of lines) if (id !== l.id) { now += crossings(next, q); before += crossings(pts, q); }
+      if (now > before) continue;
+      entry[which] = { side: e.side, c };
+      pts = next;
+      const list = spots.get(end.key) || [];
+      const k = list.findIndex(sp => sp.id === l.id && !sp.anchor);
+      if (k >= 0) list.splice(k, 1);
+      addSpot(end.key, l.id, c, true);
+    }
+    if (entry.from || entry.to) { out.set(l.id, { from: entry.from || null, to: entry.to || null }); lines.set(l.id, pts); }
   }
   return out;
 }
