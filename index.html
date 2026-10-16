@@ -50,6 +50,7 @@
   #svg .block { cursor: move; }
   #svg.shift .block, #svg.shift .conn { cursor: crosshair; }
   #svg .link .hit { cursor: pointer; }
+  #svg .seg-h { cursor: ns-resize !important; } #svg .seg-v { cursor: ew-resize !important; }
   #svg .conn, #svg .end-handle { cursor: grab; }
   #stage.panning #svg, #stage.panning #svg * { cursor: grab !important; }
   .h-nw, .h-se { cursor: nwse-resize; } .h-ne, .h-sw { cursor: nesw-resize; }
@@ -560,6 +561,10 @@ function normLink(o) {
   l.width = clamp(num(o.width, D.width), 0.25, 20);
   l.connSize = clamp(num(o.connSize, D.connSize), 2, 40);
   l.label = String(o.label ?? '').slice(0, 200);
+  if (Array.isArray(o.waypoints)) {
+    const w = o.waypoints.filter(p => p && typeof p === 'object').slice(0, 200).map(p => ({ x: r2(num(p.x, 0)), y: r2(num(p.y, 0)) }));
+    if (w.length) l.waypoints = w;
+  }
   return l;
 }
 function normalizeDoc(data) {
@@ -946,6 +951,42 @@ function nudgeOk(pts, k, c, horiz, rects) {
   return true;
 }
 
+/* Polyline through user-placed waypoints. The first and last bends follow
+   the ports when blocks move; missing elbows are inserted. */
+function manualRoute(a, b, wps, R) {
+  const p1 = { x: a.x, y: a.y }, p2 = { x: b.x, y: b.y };
+  const w = wps.map(p => ({ x: p.x, y: p.y }));
+  const stub = e => ({ x: r2(e.x + e.nx * R.clearance), y: r2(e.y + e.ny * R.clearance) });
+  const fit = (e, W, V) => { // returns a stub point to insert, or null
+    if (!e.block) return null;
+    const horiz = e.nx !== 0;
+    const ahead = (W.x - e.x) * e.nx + (W.y - e.y) * e.ny;
+    const conflict = V && (horiz ? Math.abs(W.y - V.y) < EPS : Math.abs(W.x - V.x) < EPS);
+    if (ahead < 1 || conflict) return stub(e);
+    if (horiz) W.y = e.y; else W.x = e.x;
+    return null;
+  };
+  const s1 = fit(a, w[0], w.length > 1 ? w[1] : null);
+  const s2 = fit(b, w[w.length - 1], w.length > 1 ? w[w.length - 2] : null);
+  const raw = [p1, ...(s1 ? [s1] : []), ...w, ...(s2 ? [s2] : []), p2];
+  // insert elbows between points that are not aligned
+  const out = [raw[0]];
+  let lastH = a.block ? a.nx === 0 : false;
+  for (let i = 1; i < raw.length; i++) {
+    const A = out[out.length - 1], B = raw[i];
+    const sameX = Math.abs(A.x - B.x) < EPS, sameY = Math.abs(A.y - B.y) < EPS;
+    if (!sameX && !sameY) {
+      if (i === raw.length - 1 && b.block) out.push(b.nx !== 0 ? { x: A.x, y: B.y } : { x: B.x, y: A.y });
+      else out.push(lastH ? { x: A.x, y: B.y } : { x: B.x, y: A.y });
+      lastH = Math.abs(out[out.length - 1].y - B.y) < EPS;
+    } else if (!sameX || !sameY) lastH = sameY;
+    out.push(B);
+  }
+  const pts = simplify(out);
+  return pts.length > 1 ? pts : [p1, p2];
+}
+const hasWaypoints = l => l.route === 'poly' && l.waypoints && l.waypoints.length > 0;
+
 function routeAll(ends) {
   const R = settings.routing;
   const geo = new Map();
@@ -953,8 +994,17 @@ function routeAll(ends) {
   const c = R.clearance;
   const obstacles = doc.blocks.map(b => ({ id: b.id, x1: r2(b.x - c), y1: r2(b.y - c), x2: r2(b.x + b.w + c), y2: r2(b.y + b.h + c) }));
   const polys = [];
+  // user-shaped polylines first, so automatic routes avoid overlapping them
+  for (const l of doc.links) {
+    if (!hasWaypoints(l)) continue;
+    const e = ends.get(l.id);
+    const pts = manualRoute(e.from, e.to, l.waypoints, R);
+    addUsed(used, pts);
+    geo.set(l.id, { type: 'poly', pts, manual: true });
+  }
   for (const l of doc.links) {
     const e = ends.get(l.id), a = e.from, b = e.to;
+    if (hasWaypoints(l)) continue;
     if (l.route === 'poly') {
       const pts = routeOrth(a, b, obstacles, used, R);
       addUsed(used, pts);
@@ -1113,7 +1163,14 @@ function linkSvg(l, g, ends) {
   const selected = sel.has(l.id);
   let s = `<g class="link" data-link="${esc(l.id)}">`;
   if (selected) s += `<path d="${full}" fill="none" stroke="#2563eb" stroke-opacity=".28" stroke-width="${l.width + 7}" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>`;
-  s += `<path class="hit" d="${full}" fill="none" stroke="transparent" stroke-width="${Math.max(12, l.width + 8)}" pointer-events="stroke"/>`;
+  const hw = Math.max(12, l.width + 8);
+  if (g.type === 'poly') {
+    // one hit line per segment, so a segment can be dragged
+    for (let k = 0; k < g.pts.length - 1; k++) {
+      const A = g.pts[k], B = g.pts[k + 1];
+      s += `<line class="hit ${Math.abs(A.y - B.y) < EPS ? 'seg-h' : 'seg-v'}" data-seg="${k}" x1="${f1(A.x)}" y1="${f1(A.y)}" x2="${f1(B.x)}" y2="${f1(B.y)}" stroke="transparent" stroke-width="${hw}" pointer-events="stroke"/>`;
+    }
+  } else s += `<path class="hit" d="${full}" fill="none" stroke="transparent" stroke-width="${hw}" pointer-events="stroke"/>`;
   s += `<path d="${d}" fill="none" stroke="${esc(l.color)}" stroke-width="${l.width}"${dash ? ` stroke-dasharray="${dash}" stroke-linecap="${l.style === 'dotted' ? 'round' : 'butt'}"` : ''} stroke-linejoin="round" pointer-events="none"/>`;
   s += markers;
   if (l.label) {
@@ -1179,8 +1236,17 @@ function overlaySvg(ends) {
     }
   }
   for (const l of selLinks()) {
-    const e = ends.get(l.id);
+    const e = ends.get(l.id), g = lastGeo.get(l.id);
     if (!e) continue;
+    if (g && g.type === 'poly') {
+      for (let i = 0; i < g.pts.length - 1; i++) {
+        const A = g.pts[i], B = g.pts[i + 1], L = dist(A, B);
+        if (L * k < 28) continue;
+        const horiz = Math.abs(A.y - B.y) < EPS, gl = 14 / k, gw = 6 / k;
+        const w = horiz ? gl : gw, h = horiz ? gw : gl;
+        s += `<rect class="seg-grip ${horiz ? 'seg-h' : 'seg-v'}" data-link="${esc(l.id)}" data-seg="${i}" x="${f1((A.x + B.x) / 2 - w / 2)}" y="${f1((A.y + B.y) / 2 - h / 2)}" width="${f1(w)}" height="${f1(h)}" rx="${f1(gw / 2)}" fill="#fff" stroke="#2563eb" stroke-width="${1.2 / k}"/>`;
+      }
+    }
     for (const which of ['from', 'to']) {
       const p = e[which];
       s += `<circle class="end-handle" data-link="${esc(l.id)}" data-end="${which}" cx="${f1(p.x)}" cy="${f1(p.y)}" r="${5.5 / k}" fill="${p.block ? '#fff' : '#fde68a'}" stroke="#2563eb" stroke-width="${1.5 / k}"/>`;
@@ -1302,6 +1368,14 @@ svg.addEventListener('pointerdown', e => {
     render();
     return;
   }
+  const segEl = t.closest('[data-seg]');
+  if (segEl && !mod && !e.shiftKey) {
+    const l = linkById(segEl.closest('[data-link]').dataset.link), g = lastGeo.get(l.id);
+    if (!sel.has(l.id)) { sel = new Set([l.id]); refreshInspector(); }
+    if (g && g.type === 'poly') drag = { type: 'seg', l, k: +segEl.dataset.seg, pts: g.pts, p0: p, snap: snapshot(), moved: false };
+    render();
+    return;
+  }
   const bEl = t.closest('[data-block]');
   if (bEl) {
     const b = bmap.get(bEl.dataset.block);
@@ -1309,7 +1383,7 @@ svg.addEventListener('pointerdown', e => {
     if (mod) { sel.has(b.id) ? sel.delete(b.id) : sel.add(b.id); refreshInspector(); render(); return; }
     if (!sel.has(b.id)) { sel = new Set([b.id]); refreshInspector(); }
     const ids = [...sel].filter(id => bmap.has(id));
-    drag = { type: 'move', starts: ids.map(id => ({ b: bmap.get(id), x: bmap.get(id).x, y: bmap.get(id).y })), p0: p, snap: snapshot(), moved: false };
+    drag = { type: 'move', starts: ids.map(id => ({ b: bmap.get(id), x: bmap.get(id).x, y: bmap.get(id).y })), wps: carriedWaypoints(new Set(ids)), p0: p, snap: snapshot(), moved: false };
     render();
     return;
   }
@@ -1340,6 +1414,17 @@ window.addEventListener('pointermove', e => {
       if (!s0) return;
       const ddx = snapV(s0.x + dx, e) - s0.x, ddy = snapV(s0.y + dy, e) - s0.y;
       for (const s of drag.starts) { s.b.x = r2(s.x + ddx); s.b.y = r2(s.y + ddy); }
+      for (const c of drag.wps) c.l.waypoints = c.w.map(q => ({ x: r2(q.x + ddx), y: r2(q.y + ddy) }));
+      render(); break;
+    }
+    case 'seg': {
+      if (!drag.moved && Math.hypot(p.x - drag.p0.x, p.y - drag.p0.y) * view.k < 3) return;
+      if (!drag.moved) { Object.assign(drag, segDragBase(drag.pts, drag.k)); drag.moved = true; }
+      const pts = drag.pts.map(q => ({ x: q.x, y: q.y })), A = pts[drag.k], B = pts[drag.k + 1];
+      if (Math.abs(A.y - B.y) < EPS) { const c = snapV(A.y + p.y - drag.p0.y, e); A.y = B.y = c; }
+      else { const c = snapV(A.x + p.x - drag.p0.x, e); A.x = B.x = c; }
+      const inner = simplify(pts).slice(1, -1);
+      if (inner.length) drag.l.waypoints = inner; else delete drag.l.waypoints;
       render(); break;
     }
     case 'resize': {
@@ -1392,7 +1477,7 @@ window.addEventListener('pointerup', e => {
   const d = drag;
   drag = null;
   switch (d.type) {
-    case 'move': case 'resize': case 'linkEnd':
+    case 'move': case 'resize': case 'linkEnd': case 'seg':
       if (d.moved) pushUndo(d.snap);
       refreshInspector();
       break;
@@ -1419,6 +1504,25 @@ window.addEventListener('pointerup', e => {
   }
   render();
 });
+
+/* Copy of a routed polyline ready for dragging segment k. End segments get
+   a short stub at the port so that only the part after it moves. */
+function segDragBase(src, k) {
+  const pts = src.map(q => ({ x: q.x, y: q.y }));
+  const n = pts.length;
+  const stubPt = (P, Q) => {
+    const L = dist(P, Q) || 1, s = Math.min(settings.routing.clearance, L / 3);
+    return { x: r2(P.x + (Q.x - P.x) / L * s), y: r2(P.y + (Q.y - P.y) / L * s) };
+  };
+  if (k === n - 2) { const S = stubPt(pts[n - 1], pts[n - 2]); pts.splice(n - 1, 0, { ...S }, { ...S }); }
+  if (k === 0) { const S = stubPt(pts[0], pts[1]); pts.splice(1, 0, { ...S }, { ...S }); k = 2; }
+  return { pts, k };
+}
+/* Manual routes of links whose both ends sit on moved blocks travel with them */
+function carriedWaypoints(ids) {
+  return doc.links.filter(l => l.waypoints && l.from.block && l.to.block && ids.has(l.from.block) && ids.has(l.to.block))
+    .map(l => ({ l, w: clone(l.waypoints) }));
+}
 
 function onDoubleClick(e) {
   const p = toWorld(e);
@@ -1524,7 +1628,11 @@ function pasteClipboard(offset = 20) {
     if (e.block) return map.has(e.block) ? Object.assign(clone(e), { block: map.get(e.block) }) : clone(e);
     return { x: e.x + offset, y: e.y + offset };
   };
-  const nl = clipboard.links.map(l => Object.assign(clone(l), { id: uid('l'), from: mapEnd(l.from), to: mapEnd(l.to) }));
+  const nl = clipboard.links.map(l => {
+    const c = Object.assign(clone(l), { id: uid('l'), from: mapEnd(l.from), to: mapEnd(l.to) });
+    if (c.waypoints) c.waypoints = c.waypoints.map(q => ({ x: q.x + offset, y: q.y + offset }));
+    return c;
+  });
   doc.blocks.push(...nb); doc.links.push(...nl);
   sel = new Set([...nb.map(b => b.id), ...nl.map(l => l.id)]);
   // keep the clipboard relative to the pasted copies so repeated paste cascades
@@ -1544,6 +1652,7 @@ function nudgeSelection(dx, dy) {
   if (!blocks.length) return;
   const snap = snapshot();
   for (const b of blocks) { b.x = r2(b.x + dx); b.y = r2(b.y + dy); }
+  for (const c of carriedWaypoints(new Set(blocks.map(b => b.id)))) c.l.waypoints = c.w.map(q => ({ x: r2(q.x + dx), y: r2(q.y + dy) }));
   pushUndo(snap); render(); refreshInspector();
 }
 
@@ -1719,6 +1828,7 @@ function refreshInspector() {
       <ul class="tips">
         <li><b>Double-click</b> empty canvas to add a block.</li>
         <li><b>Shift + drag</b> from a block to draw a link. Drop on another block or on empty canvas (free end).</li>
+        <li><b>Drag a polyline segment</b> to move it. "Reset route" in the sidebar brings back automatic routing.</li>
         <li>Select a link and <b>drag its end handles</b> (or connectors) to another side or block. Drop near the center of a block for an automatic side.</li>
         <li><b>Double-click</b> a block to edit the rich-text title (Enter = new line).</li>
         <li><b>Wheel</b> pans, <b>Ctrl/⌘ + wheel</b> zooms, <b>Space + drag</b> pans.</li>
@@ -1767,6 +1877,10 @@ function refreshInspector() {
     h += `<h3>${links.length > 1 ? links.length + ' links' : 'Link'}</h3>`;
     h += row('Label', ctl(T, 'label', 'text', l.label, { placeholder: 'optional' }));
     h += row('Routing', ctl(T, 'route', 'select', l.route, { options: OPTS.route }));
+    if (l.route === 'poly') {
+      const manual = links.some(x => x.waypoints);
+      h += `<div class="row"><span></span><div class="muted" style="font-size:12px">${manual ? 'Manual route' : 'Drag a segment to move it'}${manual ? ' <button class="btn" data-act="resetRoute" style="margin-left:6px">Reset route</button>' : ''}</div></div>`;
+    }
     h += row('Color', ctl(T, 'color', 'color', l.color));
     h += row('Width', ctl(T, 'width', 'number', l.width, { min: 0.5, step: 0.5 }));
     h += row('Line style', ctl(T, 'style', 'select', l.style, { options: OPTS.lineStyle }));
@@ -1901,7 +2015,8 @@ inspector.addEventListener('click', e => {
     case 'back': reorder(false); return;
     case 'dup': duplicateSelection(); return;
     case 'delete': deleteSelection(); return;
-    case 'swap': for (const l of selLinks()) { [l.from, l.to] = [l.to, l.from]; [l.startEnd, l.endEnd] = [l.endEnd, l.startEnd]; [l.startConn, l.endConn] = [l.endConn, l.startConn]; } break;
+    case 'swap': for (const l of selLinks()) { [l.from, l.to] = [l.to, l.from]; [l.startEnd, l.endEnd] = [l.endEnd, l.startEnd]; [l.startConn, l.endConn] = [l.endConn, l.startConn]; if (l.waypoints) l.waypoints.reverse(); } break;
+    case 'resetRoute': for (const l of selLinks()) delete l.waypoints; break;
     case 'defBlock': {
       const b = selBlocks()[0];
       for (const k of Object.keys(settings.block)) if (k in b) settings.block[k] = b[k];

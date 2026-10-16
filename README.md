@@ -14,6 +14,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
   - Polylines are routed with A* around blocks and keep a set clearance.
   - Polylines avoid overlapping each other. Parallel segments are spread apart by a set spacing.
   - Polyline corners are rounded with a set radius.
+  - You can drag any polyline segment to move it. The route then becomes manual: its bends stay where you put them and follow the ports when blocks move. "Reset route" in the sidebar brings back automatic routing.
 - **Settings**: canvas, grid and snap, routing parameters, and default styles for new blocks and links. You can save them as your personal defaults.
 - **Files**: the diagram is stored as JSON. In Chrome the File System Access API reads and writes the local file in place; other browsers fall back to upload/download. Work is also auto-saved in browser storage, and you can drop a `.json` file onto the window to open it.
 - **Other**: undo/redo, copy/paste/duplicate, box selection, zoom/pan, export to SVG.
@@ -34,6 +35,7 @@ Open `index.html` in Google Chrome (or Edge). Nothing to install, no build step 
 
 A link end is either attached, `{ "block": id, "side": "auto" | "top" | "right" | "bottom" | "left", "t": 0..1 }`, or free, `{ "x", "y" }`.
 Any end can also carry a connector name: `"name": "REST /orders", "showName": true`.
+A manually shaped polyline stores its bend points as `"waypoints": [ { "x", "y" }, … ]`.
 
 ## Shortcuts
 
@@ -42,6 +44,7 @@ Any end can also carry a connector name: `"name": "REST /orders", "showName": tr
 | New block | double-click canvas |
 | Edit title | double-click block / Enter |
 | New link | Shift + drag from block |
+| Move a polyline segment | drag the segment |
 | Undo / redo | Ctrl/⌘+Z, Ctrl/⌘+Shift+Z |
 | Copy / paste / duplicate | Ctrl/⌘+C / V / D |
 | Save / save as / open | Ctrl/⌘+S, Ctrl/⌘+Shift+S, Ctrl/⌘+O |
