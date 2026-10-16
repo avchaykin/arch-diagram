@@ -1073,67 +1073,146 @@ function findStraight(ends, geo) {
   const along = side => (side === 'top' || side === 'bottom') ? 'x' : 'y';
   // occupied spots on every block side
   const spots = new Map();
-  const addSpot = (k, id, c) => { if (!spots.has(k)) spots.set(k, []); spots.get(k).push({ id, c }); };
+  // `o`: the sort key computeEnds uses on that side, as a coordinate
+  const addSpot = (k, id, c, anchor, o = c) => { if (!spots.has(k)) spots.set(k, []); spots.get(k).push({ id, c, anchor, o }); };
   for (const [id, r] of ends) for (const w of ['from', 'to']) {
     const e = r[w];
-    if (e.block) addSpot(sideKey(e.block, e.side), id, e[along(e.side)]);
+    if (!e.block) continue;
+    const ax = along(e.side), len = ax === 'x' ? e.block.w : e.block.h;
+    addSpot(sideKey(e.block, e.side), id, e[ax], false, e.block[ax] + e.order * len);
   }
   const lines = new Map();
   for (const [id, g] of geo) lines.set(id, geoPoints(g));
-  const span = (e, link, which, axis) => { // the range an end can attach in, across the travel axis
-    if (!e.block) return { lo: e[axis], hi: e[axis], a1: e[axis === 'y' ? 'x' : 'y'], a2: e[axis === 'y' ? 'x' : 'y'] };
-    const b = e.block, horiz = axis === 'y';
-    return horiz ? { lo: b.y + M, hi: b.y + b.h - M, a1: b.x, a2: b.x + b.w } : { lo: b.x + M, hi: b.x + b.w - M, a1: b.y, a2: b.y + b.h };
-  };
-  for (const l of doc.links) {
-    if (hasWaypoints(l) || l.straight === false) continue;
+
+  // Can link l run straight between its two ends? Returns the sides it would use
+  // and the range [lo, hi] of positions across the travel direction.
+  const plan = l => {
     const r = ends.get(l.id), A = r.from, B = r.to;
-    if (!A.block && !B.block) continue;
-    if (A.block && B.block && A.block === B.block) continue;
+    if (!A.block && !B.block) return null;
+    if (A.block && B.block && A.block === B.block) return null;
     for (const axis of ['y', 'x']) { // 'y': travel horizontally (left/right sides)
-      const sa = span(A, l, 'from', axis), sb = span(B, l, 'to', axis);
-      let sideA, sideB;
+      const other = axis === 'y' ? 'x' : 'y';
+      const span = e => {
+        if (!e.block) return { lo: e[axis], hi: e[axis], a1: e[other], a2: e[other] };
+        const b = e.block;
+        return axis === 'y' ? { lo: b.y + M, hi: b.y + b.h - M, a1: b.x, a2: b.x + b.w } : { lo: b.x + M, hi: b.x + b.w - M, a1: b.y, a2: b.y + b.h };
+      };
+      const sa = span(A), sb = span(B);
       const [s1, s2] = axis === 'y' ? ['right', 'left'] : ['bottom', 'top'];
+      let sideA, sideB;
       if (sa.a2 + 4 < sb.a1) { sideA = s1; sideB = s2; } else if (sb.a2 + 4 < sa.a1) { sideA = s2; sideB = s1; } else continue;
       const sideOk = (e, which, side) => !e.block || !l[which].side || l[which].side === 'auto' || l[which].side === side;
       if (!sideOk(A, 'from', sideA) || !sideOk(B, 'to', sideB)) continue;
       const lo = Math.max(sa.lo, sb.lo), hi = Math.min(sa.hi, sb.hi);
       if (lo > hi + EPS) continue;
-      // already straight on its spread slots: nothing to do
-      if (Math.abs(A[axis] - B[axis]) < EPS && (!A.block || A.side === sideA) && (!B.block || B.side === sideB)) break;
-      const cands = [];
-      if (A.block && A.side === sideA) cands.push(A[axis]);
-      if (B.block && B.side === sideB) cands.push(B[axis]);
-      if (!A.block) cands.push(A[axis]);
-      if (!B.block) cands.push(B[axis]);
-      cands.push((lo + hi) / 2);
-      const point = (e, side, c) => {
-        if (!e.block) return { x: e.x, y: e.y };
-        const b = e.block;
-        return axis === 'y' ? { x: side === 'right' ? b.x + b.w : b.x, y: c } : { x: c, y: side === 'bottom' ? b.y + b.h : b.y };
-      };
-      const own = lines.get(l.id) || [];
-      for (const c0 of cands) {
-        const c = r2(c0);
-        if (c < lo - EPS || c > hi + EPS) continue;
-        const free = (e, side) => !e.block || (spots.get(sideKey(e.block, side)) || []).every(sp => sp.id === l.id || Math.abs(sp.c - c) >= minGap);
-        if (!free(A, sideA) || !free(B, sideB)) continue;
-        const pA = point(A, sideA, c), pB = point(B, sideB, c);
-        const x1 = Math.min(pA.x, pB.x), x2 = Math.max(pA.x, pB.x), y1 = Math.min(pA.y, pB.y), y2 = Math.max(pA.y, pB.y);
-        const hitsBlock = doc.blocks.some(b => b !== A.block && b !== B.block && x2 > b.x - 1 && x1 < b.x + b.w + 1 && y2 > b.y - 1 && y1 < b.y + b.h + 1);
-        if (hitsBlock) continue;
-        const seg = [pA, pB];
-        let now = 0, before = 0;
-        for (const [id, pts] of lines) if (id !== l.id) { now += crossings(seg, pts); before += crossings(own, pts); }
-        if (now > before) continue;
-        out.set(l.id, { from: A.block ? { side: sideA, c } : null, to: B.block ? { side: sideB, c } : null });
-        lines.set(l.id, seg);
-        for (const sp of spots.values()) for (let i = sp.length - 1; i >= 0; i--) if (sp[i].id === l.id) sp.splice(i, 1);
-        if (A.block) addSpot(sideKey(A.block, sideA), l.id, c);
-        if (B.block) addSpot(sideKey(B.block, sideB), l.id, c);
-        break;
+      const end = (e, side) => ({ e, side, key: e.block ? sideKey(e.block, side) : `free:${e.x},${e.y}`, slot: e.block ? (e.side === side ? e[axis] : null) : e[axis] });
+      let p = end(A, sideA), q = end(B, sideB), flip = false;
+      if (p.key > q.key) { [p, q] = [q, p]; flip = true; }
+      return { l, axis, lo, hi, p, q, flip, order: ((p.slot ?? (lo + hi) / 2) + (q.slot ?? (lo + hi) / 2)) / 2 };
+    }
+    return null;
+  };
+  const point = (pl, end, c) => {
+    const e = end.e;
+    if (!e.block) return { x: e.x, y: e.y };
+    const b = e.block;
+    return pl.axis === 'y' ? { x: end.side === 'right' ? b.x + b.w : b.x, y: c } : { x: c, y: end.side === 'bottom' ? b.y + b.h : b.y };
+  };
+
+  // Links between the same two block sides are placed together, so that two or
+  // more parallel links can all run straight side by side.
+  const groups = new Map();
+  for (const l of doc.links) {
+    if (hasWaypoints(l) || l.straight === false) continue;
+    const pl = plan(l);
+    if (!pl) continue;
+    const k = pl.p.key + '#' + pl.q.key + '#' + pl.axis;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(pl);
+  }
+  // `skip`: links whose current routes are ignored when counting crossings
+  // (the rest of the group; they get re-spread and re-routed anyway)
+  const tryPlace = (members, coords, skip) => {
+    const n = members.length, ids = new Set(members.map(m => m.l.id));
+    for (let i = 0; i < n; i++) {
+      const pl = members[i], c = coords[i];
+      if (c == null || c < pl.lo - EPS || c > pl.hi + EPS) return false;
+      if (i && c - coords[i - 1] < minGap - EPS) return false;
+    }
+    // Simulate the side after placing: anchored spots stay, the others are
+    // spread evenly in the gaps between them (as computeEnds does). Reject when
+    // that packs connectors noticeably tighter than an even spread would.
+    const sideOk = (end, cs) => {
+      const b = end.e.block;
+      if (!b) return true;
+      const ax = along(end.side), s0 = ax === 'x' ? b.x : b.y, s1 = s0 + (ax === 'x' ? b.w : b.h);
+      const list = (spots.get(end.key) || []).filter(sp => !ids.has(sp.id));
+      const anchors = list.filter(sp => sp.anchor).map(sp => sp.c).concat(cs).sort((u, v) => u - v);
+      const others = list.filter(sp => !sp.anchor).map(sp => sp.o).sort((u, v) => u - v);
+      const bounds = [s0, ...anchors, s1], pos = [...anchors];
+      let k = 0;
+      for (let g = 0; g < bounds.length - 1; g++) {
+        const run = [];
+        while (k < others.length && (g === bounds.length - 2 || others[k] < bounds[g + 1])) run.push(others[k++]);
+        run.forEach((_, j) => pos.push(bounds[g] + (bounds[g + 1] - bounds[g]) * (j + 1) / (run.length + 1)));
       }
-      if (out.has(l.id)) break;
+      pos.sort((u, v) => u - v);
+      const need = Math.min(minGap, (s1 - s0) / (pos.length + 1)) * 0.9;
+      for (let i = 1; i < pos.length; i++) if (pos[i] - pos[i - 1] < need) return false;
+      return true;
+    };
+    const byKey = new Map();
+    members.forEach((pl, i) => { for (const end of [pl.p, pl.q]) { if (!byKey.has(end.key)) byKey.set(end.key, { end, cs: [] }); byKey.get(end.key).cs.push(coords[i]); } });
+    for (const { end, cs } of byKey.values()) if (!sideOk(end, cs)) return false;
+    const segs = [];
+    let now = 0, before = 0;
+    for (let i = 0; i < n; i++) {
+      const pl = members[i], c = coords[i];
+      const a = point(pl, pl.p, c), b = point(pl, pl.q, c);
+      const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x), y1 = Math.min(a.y, b.y), y2 = Math.max(a.y, b.y);
+      if (doc.blocks.some(bk => bk !== pl.p.e.block && bk !== pl.q.e.block && x2 > bk.x - 1 && x1 < bk.x + bk.w + 1 && y2 > bk.y - 1 && y1 < bk.y + bk.h + 1)) return false;
+      segs.push([a, b]);
+      const own = lines.get(pl.l.id) || [];
+      for (const [id, pts] of lines) if (!ids.has(id) && !(skip && skip.has(id))) { now += crossings(segs[i], pts); before += crossings(own, pts); }
+    }
+    if (now > before) return false;
+    members.forEach((pl, i) => {
+      const c = r2(coords[i]), id = pl.l.id;
+      const ep = { side: pl.p.side, c }, eq = { side: pl.q.side, c };
+      const [from, to] = pl.flip ? [eq, ep] : [ep, eq];
+      out.set(id, { from: (pl.flip ? pl.q : pl.p).e.block ? from : null, to: (pl.flip ? pl.p : pl.q).e.block ? to : null });
+      lines.set(id, segs[i]);
+      for (const sp of spots.values()) for (let j = sp.length - 1; j >= 0; j--) if (sp[j].id === id) sp.splice(j, 1);
+      if (pl.p.e.block) addSpot(pl.p.key, id, c, true);
+      if (pl.q.e.block) addSpot(pl.q.key, id, c, true);
+    });
+    return true;
+  };
+  const options = members => {
+    const n = members.length, lo = Math.max(...members.map(m => m.lo)), hi = Math.min(...members.map(m => m.hi));
+    const opts = [];
+    const fixed = members.map(m => !m.p.e.block ? m.p.slot : !m.q.e.block ? m.q.slot : null);
+    if (fixed.some(v => v != null)) { opts.push(fixed.map((v, i) => v ?? members[i].p.slot)); return opts; }
+    opts.push(members.map(m => m.p.slot), members.map(m => m.q.slot));
+    // evenly spread over the shared part of both sides
+    const a = lo - M, b = hi + M;
+    opts.push(members.map((_, i) => a + (b - a) * (i + 1) / (n + 1)));
+    // packed around the middle with the minimum gap
+    const mid = (lo + hi) / 2;
+    opts.push(members.map((_, i) => mid + (i - (n - 1) / 2) * minGap));
+    return opts;
+  };
+  for (const members of groups.values()) {
+    members.sort((u, v) => u.order - v.order);
+    // already straight on their spread slots: nothing to do
+    if (members.every(m => m.p.slot != null && m.q.slot != null && Math.abs(m.p.slot - m.q.slot) < EPS)) continue;
+    // the whole group first, then as many links as possible one by one
+    if (options(members).some(o => tryPlace(members, o.map(v => v == null ? null : r2(v))))) continue;
+    const rest = new Set(members.map(m => m.l.id));
+    // middle links first: they are the most likely to fit inside the shared range
+    const mid = (members.length - 1) / 2;
+    for (const m of [...members].sort((u, v) => Math.abs(members.indexOf(u) - mid) - Math.abs(members.indexOf(v) - mid))) {
+      if (options([m]).some(o => tryPlace([m], o.map(v => v == null ? null : r2(v)), rest))) rest.delete(m.l.id);
     }
   }
   return out;
