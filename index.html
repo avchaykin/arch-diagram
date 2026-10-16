@@ -138,6 +138,9 @@
   }
   .seg button:hover { background: rgba(255,255,255,.7); color: var(--ui-text); }
   .seg button.on { background: var(--ui-bg); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.04); }
+  .seg.plain { background: transparent; padding: 0; }
+  .seg.plain button:hover { background: var(--ui-bg2); }
+  .seg.plain button.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
   .seg.grid { display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; }
   .seg.grid button { min-width: 0; padding: 0; }
   .row.stack { grid-template-columns: 1fr; gap: 3px; }
@@ -331,7 +334,7 @@ const DEFAULT_SETTINGS = {
   },
   link: {
     route: 'poly', color: '#4a5568', width: 1.5, style: 'solid', startEnd: 'none', endEnd: 'arrow',
-    startConn: 'none', endConn: 'none', connColor: '#4a5568', connSize: 8, labelColor: '#374151'
+    startConn: 'none', endConn: 'none', connColor: '#4a5568', connSize: 8, labelColor: '#374151', straight: true
   }
 };
 
@@ -553,7 +556,7 @@ function newLink(from, to, props = {}) {
     route: d.route, color: d.color, width: d.width, style: d.style,
     startEnd: d.startEnd, endEnd: d.endEnd,
     startConn: d.startConn, endConn: d.endConn, connColor: d.connColor, connSize: d.connSize,
-    label: '', labelColor: d.labelColor
+    label: '', labelColor: d.labelColor, straight: d.straight !== false
   }, props);
 }
 
@@ -601,6 +604,7 @@ function normLink(o) {
   l.width = clamp(num(o.width, D.width), 0.25, 20);
   l.connSize = clamp(num(o.connSize, D.connSize), 2, 40);
   l.label = String(o.label ?? '').slice(0, 200);
+  l.straight = o.straight !== false;
   if (Array.isArray(o.waypoints)) {
     const w = o.waypoints.filter(p => p && typeof p === 'object').slice(0, 200).map(p => ({ x: r2(num(p.x, 0)), y: r2(num(p.y, 0)) }));
     if (w.length) l.waypoints = w;
@@ -1082,7 +1086,7 @@ function findStraight(ends, geo) {
     return horiz ? { lo: b.y + M, hi: b.y + b.h - M, a1: b.x, a2: b.x + b.w } : { lo: b.x + M, hi: b.x + b.w - M, a1: b.y, a2: b.y + b.h };
   };
   for (const l of doc.links) {
-    if (hasWaypoints(l)) continue;
+    if (hasWaypoints(l) || l.straight === false) continue;
     const r = ends.get(l.id), A = r.from, B = r.to;
     if (!A.block && !B.block) continue;
     if (A.block && B.block && A.block === B.block) continue;
@@ -2042,7 +2046,8 @@ function connIcon(type, dir) {
 function ctl(t, k, type, value, extra = {}) {
   const a = `data-t="${t}" data-k="${k}"`;
   if (type === 'icons') {
-    return `<div class="seg${extra.grid ? ' grid' : ''}" ${a}>${extra.options.map(([v, lbl, icon]) =>
+    const plain = /(End|Conn)$/.test(k); // arrow-end and connector pickers: no grey tray
+    return `<div class="seg${extra.grid ? ' grid' : ''}${plain ? ' plain' : ''}" ${a}>${extra.options.map(([v, lbl, icon]) =>
       `<button type="button" data-v="${esc(v)}" title="${esc(lbl)}" class="${v === value ? 'on' : ''}">${icon}</button>`).join('')}</div>`;
   }
   if (type === 'select') {
@@ -2134,6 +2139,8 @@ function refreshProps() {
     h += row('Color', ctl(T, 'color', 'color', l.color));
     h += row('Width', ctl(T, 'width', 'number', l.width, { min: 0.5, step: 0.5 }));
     h += row('Line style', ctl(T, 'style', 'select', l.style, { options: OPTS.lineStyle }));
+    h += row('Straight when possible', `<span style="display:flex;align-items:center;gap:6px">${ctl(T, 'straight', 'checkbox', l.straight !== false)}` +
+      `${settings.routing.straight ? '' : '<span class="muted" style="font-size:11px">turned off for all links in Settings</span>'}</span>`);
     h += row('Label color', ctl(T, 'labelColor', 'color', l.labelColor));
     h += `<h3>Ends</h3>`;
     h += irow('Start', iconCtl(T, 'startEnd', ICON_SETS.end('start'), l.startEnd, true), true);
@@ -2470,7 +2477,7 @@ const SETTINGS_SPEC = [
     ['routing.cornerRadius', 'Corner radius', 'number', { min: 0, max: 80 }],
     ['routing.bendPenalty', 'Bend penalty', 'number', { min: 0, max: 1000, step: 5 }],
     ['routing.curveTension', 'Curve tension', 'number', { min: 0.05, max: 1.5, step: 0.05 }],
-    ['routing.straight', 'Straight links when possible', 'checkbox']]],
+    ['routing.straight', 'Straight links when possible (all links)', 'checkbox']]],
   ['New blocks', [
     ['block.w', 'Width', 'number', { min: 10 }], ['block.h', 'Height', 'number', { min: 10 }],
     ['block.fill', 'Fill', 'color'], ['block.stroke', 'Border color', 'color'],
@@ -2490,6 +2497,7 @@ const SETTINGS_SPEC = [
     ['link.endEnd', 'Finish end', 'icons', { options: ICON_SETS.end('finish'), grid: true, stack: true }],
     ['link.startConn', 'Start connector', 'icons', { options: ICON_SETS.conn('start') }],
     ['link.endConn', 'Finish connector', 'icons', { options: ICON_SETS.conn('finish') }],
+    ['link.straight', 'Straight when possible', 'checkbox'],
     ['link.connColor', 'Connector color', 'color'], ['link.connSize', 'Connector size', 'number', { min: 2 }],
     ['link.labelColor', 'Label color', 'color']]]
 ];
