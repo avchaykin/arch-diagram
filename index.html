@@ -98,11 +98,14 @@
   #toast.show { opacity: .92; }
 
   /* ---------- inspector ---------- */
-  #inspector {
-    width: 290px; flex: none; border-left: 1px solid var(--ui-border); overflow-y: auto; background: var(--ui-bg); padding: 10px 12px 40px;
-  }
-  #inspector h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ui-muted); margin: 14px 0 6px; }
-  #inspector h3:first-child { margin-top: 2px; }
+  #side { width: 290px; flex: none; border-left: 1px solid var(--ui-border); background: var(--ui-bg); display: flex; flex-direction: column; min-height: 0; }
+  #sideTabs { display: flex; gap: 2px; margin: 8px 12px 0; padding: 2px; background: var(--ui-bg2); border-radius: 8px; flex: none; }
+  #sideTabs button { flex: 1; border: 0; background: transparent; border-radius: 6px; padding: 5px 0; cursor: pointer; color: #4b5563; }
+  #sideTabs button.on { background: var(--ui-bg); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  #sideTabs .cnt { font-size: 11px; color: var(--ui-muted); margin-left: 2px; }
+  .panel { flex: 1; overflow-y: auto; padding: 10px 12px 40px; min-height: 0; }
+  .panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ui-muted); margin: 14px 0 6px; }
+  .panel h3:first-child { margin-top: 2px; }
   .row { display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: center; margin: 4px 0; }
   .row > span { color: var(--ui-muted); font-size: 12px; }
   .row input[type=text], .row input[type=number], .row select, .row textarea {
@@ -155,6 +158,32 @@
   .muted { color: var(--ui-muted); }
   .kbd { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--ui-bg2); border: 1px solid var(--ui-border); border-radius: 4px; padding: 0 4px; }
   ul.tips { padding-left: 16px; margin: 6px 0; color: var(--ui-muted); }
+  .flow-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 1px solid var(--ui-border); background: var(--ui-bg); border-radius: 8px; padding: 7px 9px; margin: 5px 0; cursor: pointer; }
+  .flow-item:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .flow-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .flow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .flow-item .muted { font-size: 12px; }
+  .step { display: flex; align-items: flex-start; gap: 6px; border: 1px solid var(--ui-border); border-radius: 8px; padding: 6px 6px 6px 4px; margin: 5px 0; background: var(--ui-bg); }
+  .step:hover, .step.hl { border-color: var(--accent); }
+  .step.sel { background: var(--accent-soft); }
+  .step.drop-before { box-shadow: 0 -3px 0 var(--accent); } .step.drop-after { box-shadow: 0 3px 0 var(--accent); }
+  .step.dragging { opacity: .4; }
+  .step-grip { cursor: grab; color: var(--ui-muted); padding: 2px 1px; user-select: none; line-height: 18px; letter-spacing: -2px; }
+  .step-num { flex: none; min-width: 20px; height: 20px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+  .step-body { flex: 1; min-width: 0; }
+  .step-el { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 20px; cursor: pointer; }
+  .step-body textarea { width: 100%; margin-top: 3px; padding: 3px 6px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg); font: inherit; font-size: 12px; resize: vertical; min-height: 26px; }
+  .step-del { border: 0; background: transparent; color: var(--ui-muted); cursor: pointer; border-radius: 5px; padding: 1px 5px; line-height: 18px; }
+  .step-del:hover { color: var(--danger); background: var(--ui-bg2); }
+  #recBar {
+    position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; z-index: 5;
+    background: #111827; color: #fff; padding: 6px 8px 6px 12px; border-radius: 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.18);
+  }
+  #recBar .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: recBlink 1.2s infinite; }
+  #recBar button { border: 0; background: #fff; color: #111827; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
+  @keyframes recBlink { 50% { opacity: .25; } }
+  #svg.recording .block, #svg.recording .link .hit { cursor: copy !important; }
+  #svg .fstep { cursor: pointer; }
   ul.tips li { margin: 3px 0; }
 
   /* ---------- dialogs ---------- */
@@ -180,7 +209,7 @@
   table.keys td:first-child { white-space: nowrap; width: 40%; }
 
   @media (max-width: 760px) {
-    #inspector { width: 220px; }
+    #side { width: 220px; }
     .tbtn .lbl { display: none; }
   }
 </style>
@@ -224,6 +253,7 @@
         <g id="linkLayer"></g>
         <g id="blockLayer"></g>
         <g id="connLayer"></g>
+        <g id="flowLayer"></g>
         <g id="overlayLayer"></g>
       </g>
     </svg>
@@ -249,8 +279,13 @@
     </div>
     <div id="hint">Double-click canvas: new block · Shift+drag from a block: new link · Double-click block: edit title</div>
     <div id="toast"></div>
+    <div id="recBar" hidden><span class="dot"></span><span id="recText"></span><button data-fact="stop">Done</button></div>
   </div>
-  <aside id="inspector"></aside>
+  <aside id="side">
+    <div id="sideTabs"><button data-tab="props" class="on">Properties</button><button data-tab="flows">Flows<span class="cnt" id="flowCnt"></span></button></div>
+    <div id="inspector" class="panel"></div>
+    <div id="flowsPanel" class="panel" hidden></div>
+  </aside>
 </main>
 
 <dialog id="settingsDlg">
@@ -468,7 +503,7 @@ function storageSet(key, val) { try { localStorage.setItem(key, val); } catch (e
    State
    ===================================================================== */
 let settings = loadUserDefaults();
-let doc = { blocks: [], links: [] };
+let doc = { blocks: [], links: [], flows: [] };
 let view = { x: 0, y: 0, k: 1 };
 let sel = new Set();
 let undoStack = [], redoStack = [];
@@ -479,9 +514,11 @@ let lastGeo = new Map();
 let clipboard = null;
 let inspSnap = null;
 let hoverConn = null;
+let sideTab = 'props', activeFlow = null, recording = false, hoverStep = -1, flowSnap = null;
 
 const svg = $('#svg'), stage = $('#stage'), viewport = $('#viewport');
 const gridLayer = $('#gridLayer'), linkLayer = $('#linkLayer'), blockLayer = $('#blockLayer');
+const flowLayer = $('#flowLayer'), flowsPanel = $('#flowsPanel');
 const connLayer = $('#connLayer'), overlayLayer = $('#overlayLayer'), defs = $('#defs');
 const inspector = $('#inspector');
 const edWrap = $('#edWrap'), edInner = $('#edInner'), edBar = $('#edBar');
@@ -567,6 +604,26 @@ function normLink(o) {
   }
   return l;
 }
+const FLOW_COLOR = '#7c3aed';
+function newFlow(props = {}) {
+  return Object.assign({ id: uid('f'), name: 'Flow ' + (doc.flows.length + 1), description: '', color: FLOW_COLOR, steps: [] }, props);
+}
+function normFlow(o, ids) {
+  const f = newFlow();
+  f.id = String(o.id || f.id);
+  f.name = String(o.name ?? '').slice(0, 120);
+  f.description = String(o.description ?? '').slice(0, 4000);
+  f.color = safeColor(o.color, FLOW_COLOR);
+  f.steps = (Array.isArray(o.steps) ? o.steps : []).filter(st => st && ids.has(String(st.ref)))
+    .slice(0, 1000).map(st => ({ ref: String(st.ref), description: String(st.description ?? '').slice(0, 2000) }));
+  return f;
+}
+/* drop steps whose element no longer exists */
+function pruneFlows() {
+  const ids = new Set([...doc.blocks.map(b => b.id), ...doc.links.map(l => l.id)]);
+  for (const f of doc.flows) f.steps = f.steps.filter(st => ids.has(st.ref));
+}
+
 function normalizeDoc(data) {
   const blocks = Array.isArray(data.blocks) ? data.blocks.filter(o => o && typeof o === 'object').map(normBlock) : [];
   const seen = new Set();
@@ -578,7 +635,10 @@ function normalizeDoc(data) {
     seen.add(l.id);
     for (const w of ['from', 'to']) if (l[w].block && !ids.has(l[w].block)) l[w] = { x: 0, y: 0 };
   }
-  return { blocks, links };
+  const elems = new Set([...ids, ...links.map(l => l.id)]);
+  const flows = (Array.isArray(data.flows) ? data.flows : []).filter(o => o && typeof o === 'object').map(o => normFlow(o, elems));
+  for (const f of flows) { if (seen.has(f.id)) f.id = uid('f'); seen.add(f.id); }
+  return { blocks, links, flows };
 }
 
 const linkById = id => doc.links.find(l => l.id === id);
@@ -588,7 +648,7 @@ const selLinks = () => doc.links.filter(l => sel.has(l.id));
 /* =====================================================================
    Undo / redo / dirty
    ===================================================================== */
-const snapshot = () => JSON.stringify({ blocks: doc.blocks, links: doc.links });
+const snapshot = () => JSON.stringify({ blocks: doc.blocks, links: doc.links, flows: doc.flows });
 function pushUndo(snap) {
   if (snap === snapshot()) return;
   undoStack.push(snap);
@@ -598,6 +658,7 @@ function pushUndo(snap) {
 }
 function restore(snap) {
   doc = JSON.parse(snap);
+  doc.flows = doc.flows || [];
   bmap = new Map(doc.blocks.map(b => [b.id, b]));
   for (const id of [...sel]) if (!bmap.has(id) && !linkById(id)) sel.delete(id);
   markDirty(); render(); refreshInspector();
@@ -1205,6 +1266,37 @@ function connectorsSvg(l, ends) {
   return s;
 }
 
+/* Step numbers of the active flow: a row of pills at a block's top-left
+   corner, or above the middle of a link */
+function flowSvg() {
+  const f = flowById(activeFlow);
+  if (!f) return '';
+  const byRef = new Map();
+  f.steps.forEach((st, i) => { if (!byRef.has(st.ref)) byRef.set(st.ref, []); byRef.get(st.ref).push(i); });
+  const H = 20, GAP = 3, pw = i => Math.max(H, 9 + String(i + 1).length * 7);
+  let s = '';
+  for (const [ref, idx] of byRef) {
+    const total = idx.reduce((a, i) => a + pw(i), 0) + GAP * (idx.length - 1);
+    let x, y;
+    const b = bmap.get(ref);
+    if (b) { x = b.x - 6; y = b.y; } else {
+      const g = lastGeo.get(ref), l = linkById(ref);
+      if (!g || !l) continue;
+      const p = pointAtMiddle(g);
+      x = p.x - total / 2; y = p.y - (l.label ? 20 : 0);
+    }
+    for (const i of idx) {
+      const w = pw(i), st = f.steps[i], hl = i === hoverStep;
+      s += `<g class="fstep" data-step="${i}" data-ref="${esc(ref)}"><title>${esc(`${i + 1}. ${elemName(ref)}${st.description ? '\n' + st.description : ''}`)}</title>`;
+      if (hl) s += `<rect x="${f1(x - 4)}" y="${f1(y - H / 2 - 4)}" width="${f1(w + 8)}" height="${H + 8}" rx="${H / 2 + 4}" fill="none" stroke="${esc(f.color)}" stroke-opacity=".45" stroke-width="3"/>`;
+      s += `<rect x="${f1(x)}" y="${f1(y - H / 2)}" width="${f1(w)}" height="${H}" rx="${H / 2}" fill="${esc(f.color)}" stroke="#fff" stroke-width="2"/>`;
+      s += `<text x="${f1(x + w / 2)}" y="${f1(y + 0.5)}" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" fill="#fff">${i + 1}</text></g>`;
+      x += w + GAP;
+    }
+  }
+  return s;
+}
+
 function gridSvg() {
   const C = settings.canvas;
   svg.style.background = C.background;
@@ -1287,6 +1379,7 @@ function doRender() {
   linkLayer.innerHTML = ls;
   blockLayer.innerHTML = doc.blocks.map(blockSvg).join('');
   connLayer.innerHTML = cs;
+  flowLayer.innerHTML = flowSvg();
   overlayLayer.innerHTML = overlaySvg(ends);
   positionEditor();
   $('[data-cmd=undo]').disabled = !undoStack.length;
@@ -1337,7 +1430,7 @@ function isDoubleDown(e) {
   return dbl;
 }
 svg.addEventListener('pointerdown', e => {
-  if (e.button === 0 && !spaceDown && isDoubleDown(e)) { e.preventDefault(); drag = null; onDoubleClick(e); return; }
+  if (e.button === 0 && !spaceDown && !recording && isDoubleDown(e)) { e.preventDefault(); drag = null; onDoubleClick(e); return; }
   if (editingId) commitEditor();
   stage.focus({ preventScroll: true });
   const p = toWorld(e);
@@ -1350,6 +1443,12 @@ svg.addEventListener('pointerdown', e => {
   const t = e.target;
   const mod = e.ctrlKey || e.metaKey;
 
+  if (recording) {
+    const el = t.closest('[data-ref],[data-block],[data-link]');
+    if (el) { e.preventDefault(); addSteps([el.dataset.ref || el.dataset.block || el.dataset.link]); return; }
+  }
+  const stepEl = t.closest('[data-step]');
+  if (stepEl && !e.shiftKey) { focusStep(+stepEl.dataset.step); return; }
   const h = t.closest('[data-handle]');
   if (h) {
     const b = bmap.get(h.dataset.block);
@@ -1607,6 +1706,7 @@ function deleteSelection() {
   doc.blocks = doc.blocks.filter(b => !sel.has(b.id));
   const ids = new Set(doc.blocks.map(b => b.id));
   doc.links = doc.links.filter(l => !sel.has(l.id) && (!l.from.block || ids.has(l.from.block)) && (!l.to.block || ids.has(l.to.block)));
+  pruneFlows();
   sel.clear();
   pushUndo(snap);
   refreshInspector(); render();
@@ -1817,7 +1917,8 @@ function toHex(c) {
   return /^#[0-9a-f]{6}$/i.test(v) ? v : '#000000';
 }
 
-function refreshInspector() {
+function refreshInspector() { refreshProps(); refreshFlows(); }
+function refreshProps() {
   const blocks = selBlocks(), links = selLinks();
   let h = '';
   if (!blocks.length && !links.length) {
@@ -1831,6 +1932,7 @@ function refreshInspector() {
         <li><b>Drag a polyline segment</b> to move it. "Reset route" in the sidebar brings back automatic routing.</li>
         <li>Select a link and <b>drag its end handles</b> (or connectors) to another side or block. Drop near the center of a block for an automatic side.</li>
         <li><b>Double-click</b> a block to edit the rich-text title (Enter = new line).</li>
+        <li>Open the <b>Flows</b> tab to describe a request path or scenario as numbered steps.</li>
         <li><b>Wheel</b> pans, <b>Ctrl/⌘ + wheel</b> zooms, <b>Space + drag</b> pans.</li>
       </ul>
       <h3>About</h3>
@@ -2033,6 +2135,178 @@ inspector.addEventListener('click', e => {
 });
 
 /* =====================================================================
+   Flows: named, numbered sequences of blocks and links
+   ===================================================================== */
+const flowById = id => doc.flows.find(f => f.id === id);
+function elemName(id) {
+  const b = bmap.get(id) || doc.blocks.find(x => x.id === id);
+  if (b) return htmlToText(b.title) || 'Untitled block';
+  const l = linkById(id);
+  if (!l) return '(deleted)';
+  const end = e => { const eb = e.block && doc.blocks.find(x => x.id === e.block); return eb ? (htmlToText(eb.title) || 'block') : 'free end'; };
+  return (l.label ? l.label + ': ' : '') + end(l.from) + ' → ' + end(l.to);
+}
+function setSideTab(tab) {
+  sideTab = tab;
+  for (const b of document.querySelectorAll('#sideTabs [data-tab]')) b.classList.toggle('on', b.dataset.tab === tab);
+  inspector.hidden = tab !== 'props';
+  flowsPanel.hidden = tab !== 'flows';
+  refreshFlows();
+}
+$('#sideTabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setSideTab(b.dataset.tab); });
+function setRecording(on) {
+  recording = on && !!flowById(activeFlow);
+  refreshFlows(); render();
+}
+function refreshFlows() {
+  const f = flowById(activeFlow);
+  if (!f) { activeFlow = null; recording = false; }
+  $('#flowCnt').textContent = doc.flows.length ? ` ${doc.flows.length}` : '';
+  $('#recBar').hidden = !recording;
+  svg.classList.toggle('recording', recording);
+  if (recording) $('#recText').textContent = `Adding steps to “${f.name || 'Untitled flow'}”: click blocks and links in order`;
+  if (sideTab !== 'flows') return;
+  let h = '';
+  if (!f) {
+    h += `<h3>Flows</h3>`;
+    if (!doc.flows.length) h += `<div class="muted">No flows yet. A flow is a named sequence of numbered steps over blocks and links, such as a request path or a user scenario.</div>`;
+    h += doc.flows.map(x => `<button class="flow-item" data-fact="open" data-f="${esc(x.id)}"><span class="flow-dot" style="background:${esc(x.color)}"></span><span class="flow-name">${esc(x.name || 'Untitled flow')}</span><span class="muted">${x.steps.length} step${x.steps.length === 1 ? '' : 's'}</span></button>`).join('');
+    h += `<div class="btns"><button class="btn primary" data-fact="new">+ Empty flow</button><button class="btn" data-fact="record">+ Record a sequence</button>`;
+    if (sel.size) h += `<button class="btn" data-fact="fromSel">+ From selection (${sel.size})</button>`;
+    h += `</div><ul class="tips"><li><b>Record a sequence</b>: click blocks and links in order. Each click adds a step. Enter or Esc stops.</li>
+      <li><b>From selection</b>: Ctrl/⌘-click elements in the order of the flow, then create it.</li>
+      <li>The same element can appear in a flow several times.</li></ul>`;
+  } else {
+    h += `<div class="btns" style="margin-top:0"><button class="btn" data-fact="back">← All flows</button></div>`;
+    h += `<h3>Flow</h3>`;
+    h += row('Name', `<input type="text" data-fk="name" value="${esc(f.name)}" placeholder="Flow name">`);
+    h += row('Description', `<textarea data-fk="description" rows="3" placeholder="What this flow shows">${esc(f.description)}</textarea>`);
+    h += row('Color', `<span class="color"><input type="color" data-fk="color" value="${esc(toHex(f.color))}"><span class="hex">${esc(toHex(f.color))}</span></span>`);
+    h += `<h3>Steps</h3>`;
+    if (!f.steps.length) h += `<div class="muted">No steps yet. Use <b>Add steps</b> and click elements on the canvas.</div>`;
+    h += `<div id="stepList">` + f.steps.map((st, i) => `<div class="step${sel.has(st.ref) ? ' sel' : ''}${i === hoverStep ? ' hl' : ''}" data-i="${i}">
+      <span class="step-grip" title="Drag to reorder">⋮⋮</span>
+      <span class="step-num" style="background:${esc(f.color)}">${i + 1}</span>
+      <div class="step-body"><div class="step-el" data-fact="pick" data-i="${i}" title="Select on canvas">${esc(elemName(st.ref))}</div>
+      <textarea data-fk="step" data-i="${i}" rows="1" placeholder="Step description">${esc(st.description)}</textarea></div>
+      <button class="step-del" data-fact="delStep" data-i="${i}" title="Remove step">✕</button></div>`).join('') + `</div>`;
+    h += `<div class="btns">${recording ? `<button class="btn primary" data-fact="stop">Done adding</button>` : `<button class="btn primary" data-fact="record">+ Add steps</button>`}`;
+    if (sel.size) h += `<button class="btn" data-fact="addSel">+ Add selection (${sel.size})</button>`;
+    h += `<button class="btn danger" data-fact="delFlow">Delete flow</button></div>`;
+  }
+  flowsPanel.innerHTML = h;
+}
+function addSteps(refs) {
+  const f = flowById(activeFlow);
+  refs = refs.filter(r => bmap.has(r) || linkById(r));
+  if (!f || !refs.length) return;
+  const snap = snapshot();
+  for (const ref of refs) f.steps.push({ ref, description: '' });
+  pushUndo(snap);
+  refreshFlows(); render();
+  const list = $('#stepList');
+  if (list && list.lastElementChild) list.lastElementChild.scrollIntoView({ block: 'nearest' });
+}
+function createFlow(refs = [], record = false) {
+  const snap = snapshot();
+  const f = newFlow({ steps: refs.filter(r => bmap.has(r) || linkById(r)).map(ref => ({ ref, description: '' })) });
+  doc.flows.push(f);
+  pushUndo(snap);
+  activeFlow = f.id; recording = record;
+  setSideTab('flows'); render();
+  const inp = flowsPanel.querySelector('[data-fk=name]');
+  if (inp && !record) { inp.focus(); inp.select(); }
+}
+/* open the Flows tab at a step (clicked number on the canvas) */
+function focusStep(i) {
+  setSideTab('flows');
+  hoverStep = i; refreshFlows(); render();
+  const ta = flowsPanel.querySelector(`textarea[data-fk=step][data-i="${i}"]`);
+  if (ta) { ta.scrollIntoView({ block: 'nearest' }); ta.focus(); }
+}
+$('#recBar').addEventListener('click', e => { if (e.target.closest('[data-fact=stop]')) setRecording(false); });
+flowsPanel.addEventListener('click', e => {
+  const b = e.target.closest('[data-fact]');
+  if (!b) return;
+  const f = flowById(activeFlow), i = +b.dataset.i;
+  switch (b.dataset.fact) {
+    case 'open': activeFlow = b.dataset.f; recording = false; hoverStep = -1; break;
+    case 'back': activeFlow = null; recording = false; break;
+    case 'new': createFlow(); return;
+    case 'fromSel': createFlow([...sel]); return;
+    case 'record': if (f) recording = true; else { createFlow([], true); return; } break;
+    case 'stop': recording = false; break;
+    case 'addSel': addSteps([...sel]); return;
+    case 'pick': sel = new Set([f.steps[i].ref]); refreshProps(); break;
+    case 'delStep': { const snap = snapshot(); f.steps.splice(i, 1); hoverStep = -1; pushUndo(snap); break; }
+    case 'delFlow': { const snap = snapshot(); doc.flows = doc.flows.filter(x => x !== f); activeFlow = null; recording = false; pushUndo(snap); break; }
+  }
+  refreshFlows(); render();
+});
+flowsPanel.addEventListener('input', e => {
+  const el = e.target, k = el.dataset.fk, f = flowById(activeFlow);
+  if (!k || !f) return;
+  if (!flowSnap) flowSnap = snapshot();
+  if (k === 'step') f.steps[+el.dataset.i].description = el.value;
+  else f[k] = el.value;
+  if (k === 'color') { el.nextElementSibling.textContent = el.value; for (const n of flowsPanel.querySelectorAll('.step-num')) n.style.background = el.value; }
+  render();
+});
+flowsPanel.addEventListener('change', e => {
+  if (!e.target.dataset.fk || !flowSnap) return;
+  pushUndo(flowSnap); flowSnap = null;
+});
+flowsPanel.addEventListener('mouseover', e => {
+  const st = e.target.closest('.step'), i = st ? +st.dataset.i : -1;
+  if (i !== hoverStep) { hoverStep = i; render(); }
+});
+flowsPanel.addEventListener('mouseleave', () => { if (hoverStep >= 0) { hoverStep = -1; render(); } });
+/* reorder steps by dragging their grip */
+let stepDrag = -1;
+flowsPanel.addEventListener('pointerdown', e => {
+  const g = e.target.closest('.step-grip');
+  if (g) g.parentElement.draggable = true;
+});
+flowsPanel.addEventListener('dragstart', e => {
+  const st = e.target.closest && e.target.closest('.step');
+  if (!st) return;
+  stepDrag = +st.dataset.i;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(stepDrag));
+  st.classList.add('dragging');
+});
+const clearDropMarks = () => flowsPanel.querySelectorAll('.drop-before,.drop-after').forEach(n => n.classList.remove('drop-before', 'drop-after'));
+flowsPanel.addEventListener('dragover', e => {
+  const st = e.target.closest('.step');
+  if (stepDrag < 0 || !st) return;
+  e.preventDefault();
+  clearDropMarks();
+  const r = st.getBoundingClientRect();
+  st.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after');
+});
+flowsPanel.addEventListener('drop', e => {
+  const st = e.target.closest('.step'), f = flowById(activeFlow);
+  if (stepDrag < 0 || !st || !f) return;
+  e.preventDefault();
+  const r = st.getBoundingClientRect();
+  let to = +st.dataset.i + (e.clientY < r.top + r.height / 2 ? 0 : 1);
+  const from = stepDrag;
+  if (to > from) to--;
+  if (to !== from) {
+    const snap = snapshot();
+    const [moved] = f.steps.splice(from, 1);
+    f.steps.splice(to, 0, moved);
+    pushUndo(snap);
+  }
+  stepDrag = -1; hoverStep = -1;
+  refreshFlows(); render();
+});
+flowsPanel.addEventListener('dragend', () => {
+  stepDrag = -1; clearDropMarks();
+  flowsPanel.querySelectorAll('.step').forEach(n => { n.draggable = false; n.classList.remove('dragging'); });
+});
+
+/* =====================================================================
    Settings dialog
    ===================================================================== */
 const SETTINGS_SPEC = [
@@ -2152,7 +2426,8 @@ function buildFileObject() {
     settings,
     view: { x: r2(view.x), y: r2(view.y), k: r2(view.k * 1000) / 1000 },
     blocks: doc.blocks,
-    links: doc.links
+    links: doc.links,
+    flows: doc.flows
   };
 }
 function loadFileObject(obj, name, handle) {
@@ -2163,7 +2438,7 @@ function loadFileObject(obj, name, handle) {
   doc = normalizeDoc(obj);
   bmap = new Map(doc.blocks.map(b => [b.id, b]));
   if (snap !== snapshot()) { undoStack.push(snap); redoStack = []; }
-  sel.clear();
+  sel.clear(); activeFlow = null; recording = false;
   fileName = name || 'untitled.json';
   fileHandle = handle || null;
   if (obj.view && isFinite(obj.view.k)) view = { x: num(obj.view.x, 0), y: num(obj.view.y, 0), k: clamp(num(obj.view.k, 1), 0.1, 5) };
@@ -2222,7 +2497,8 @@ function download(name, text, type) {
 function newDiagram() {
   const snap = snapshot();
   if (editingId) cancelEdit();
-  doc = { blocks: [], links: [] };
+  doc = { blocks: [], links: [], flows: [] };
+  activeFlow = null; recording = false;
   settings = loadUserDefaults();
   if (snap !== snapshot()) { undoStack.push(snap); redoStack = []; }
   sel.clear(); fileHandle = null; fileName = 'untitled.json';
@@ -2245,7 +2521,7 @@ function exportSvg() {
   const css = `.bc{width:100%;height:100%;padding:6px 10px;display:flex;gap:8px;overflow:hidden;position:relative;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.25;word-break:break-word}.bc .bt{min-width:0}.bc .bi{flex:none;display:flex;align-items:center;justify-content:center;line-height:1}.bc .bi-corner{position:absolute;left:6px;top:6px}.bc p{margin:0}`;
   const out = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f1(x)} ${f1(y)} ${f1(w)} ${f1(h)}" width="${Math.ceil(w)}" height="${Math.ceil(h)}"><style>${css}</style>` +
     `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(w)}" height="${f1(h)}" fill="${esc(settings.canvas.background)}"/>` +
-    [linkLayer, blockLayer, connLayer].map(n => ser.serializeToString(n)).join('') + '</svg>';
+    [linkLayer, blockLayer, connLayer, flowLayer].map(n => ser.serializeToString(n)).join('') + '</svg>';
   download(fileName.replace(/\.json$/i, '') + '.svg', out, 'image/svg+xml');
   render();
 }
@@ -2310,6 +2586,7 @@ window.addEventListener('keydown', e => {
   if (mod && key === '0') { e.preventDefault(); zoomCenter(1 / view.k); return; }
   if (mod) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
+  if (recording && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); setRecording(false); return; }
   if (e.key === 'Escape') { sel.clear(); refreshInspector(); render(); return; }
   if (e.key === 'Enter' && sel.size === 1) { const b = selBlocks()[0]; if (b) { e.preventDefault(); startEdit(b); } return; }
   const step = e.shiftKey ? settings.canvas.gridSize : 1;
@@ -2354,7 +2631,21 @@ function demoDiagram() {
     L('svcA', 'mq', { route: 'poly', style: 'dashed', color: '#ea580c', endEnd: 'triangle', label: 'events' }),
     L('mq', 'svcB', { route: 'curve', style: 'dashed', color: '#ea580c', endEnd: 'circle-filled', startEnd: 'diamond' })
   ];
-  return { blocks, links };
+  const flows = [{
+    id: 'f-order', name: 'Place an order', color: FLOW_COLOR,
+    description: 'A customer places an order in the web app; billing is triggered asynchronously.',
+    steps: [
+      { ref: 'web', description: 'Customer submits the cart' },
+      { ref: links[0].id, description: 'POST /orders over HTTPS' },
+      { ref: 'gw', description: 'Authenticates and routes the request' },
+      { ref: 'svcA', description: 'Validates and creates the order' },
+      { ref: 'db', description: 'Order is stored' },
+      { ref: 'mq', description: 'OrderCreated event is published' },
+      { ref: 'svcB', description: 'Charges the customer' },
+      { ref: 'svcA', description: 'Marks the order as paid' }
+    ]
+  }];
+  return { blocks, links, flows };
 }
 
 function init() {
